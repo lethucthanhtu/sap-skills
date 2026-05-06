@@ -1,366 +1,778 @@
-# CDS (Core Data Services) Reference
+# CDS Advanced Reference
 
-> Before answering CDS questions, search SAP Help Portal for the specific annotation or feature.
-> Annotations change between releases. Always verify and cite.
-> Search: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/630ce9b386b84e80bfade96779fbaeec.html
+Advanced CDS patterns beyond basic view entities. Covers table functions, parameters,
+aggregations, hierarchy, extensions, virtual elements, abstract entities, metadata
+extensions, and unit testing.
 
 ---
 
 ## Table of Contents
-1. [CDS View Types by Environment](#1-cds-view-types-by-environment)
-2. [Basic CDS View Structure](#2-basic-cds-view-structure)
-3. [@AbapCatalog Annotations](#3-abapcatalog-annotations)
-4. [@UI Annotations](#4-ui-annotations)
-5. [@Search Annotations](#5-search-annotations)
-6. [@OData Annotations](#6-odata-annotations)
-7. [@ObjectModel Annotations](#7-objectmodel-annotations)
-8. [@AccessControl / DCL](#8-accesscontrol--dcl)
-9. [Value Help (SearchHelp)](#9-value-help-searchhelp)
-10. [VDM Layers (R/I/C)](#10-vdm-layers-ric)
-11. [Common Anti-Patterns](#11-common-anti-patterns)
-12. [Environment Differences](#12-environment-differences)
+
+1. [CDS Parameters](#1-cds-parameters)
+2. [Aggregation Views](#2-aggregation-views)
+3. [Table Functions](#3-table-functions)
+4. [CDS Hierarchy](#4-cds-hierarchy)
+5. [View Extensions](#5-view-extensions)
+6. [Abstract Entities](#6-abstract-entities)
+7. [Custom Entities](#7-custom-entities)
+8. [Virtual Elements](#8-virtual-elements)
+9. [Metadata Extensions (DDLX)](#9-metadata-extensions-ddlx)
+10. [CDS Test Double Framework](#10-cds-test-double-framework)
 
 ---
 
-## 1. CDS View Types by Environment
+## 1. CDS Parameters
 
-| View Type | Syntax Keyword | Available In | Notes |
-|-----------|---------------|--------------|-------|
-| CDS View (V1) | `define view` | ECC, S/4HANA all | Older style, needs `@AbapCatalog.sqlViewName` |
-| CDS View Entity (V2) | `define view entity` | ABAP Cloud, S/4HANA ≥2020 | Preferred in ABAP Cloud, no sqlViewName needed |
-| CDS Table Function | `define table function` | S/4HANA, ABAP Cloud | For complex logic needing AMDP |
-| CDS Hierarchy | `define hierarchy` | S/4HANA ≥2022, ABAP Cloud | For recursive/parent-child structures |
-| Abstract Entity | `define abstract entity` | ABAP Cloud | For RAP action parameters/results |
-| Custom Entity | `define custom entity` | ABAP Cloud | For data from external sources via AMDP |
+CDS parameters allow passing runtime values into a view — useful for date-dependent
+or client-filtered queries.
 
-**Rule**: In ABAP Cloud / BTP, always use `define view entity`. Never use the old `define view` with `@AbapCatalog.sqlViewName`.
+### Syntax
 
----
-
-## 2. Basic CDS View Structure
-
-### CDS View Entity (ABAP Cloud / S/4HANA ≥2020) — Preferred
 ```abap
-@AccessControl.authorizationCheck: #CHECK
-@EndUserText.label: 'My View Description'
-define view entity ZI_MyEntity
-  as select from zmy_dbtable as MyAlias
-  association [0..1] to ZI_OtherEntity as _Other
-    on $projection.OtherKey = _Other.Key
+define view entity Z_I_BalanceByDate
+  with parameters
+    p_key_date : abap.dats,
+    p_company  : bukrs
+  as select from zbalance as B
 {
-      -- Key field
-  key MyAlias.client,
-  key MyAlias.my_key        as MyKey,
-
-      -- Other fields
-      MyAlias.some_field    as SomeField,
-
-      -- Association (always expose)
-      _Other
+  key B.account     as Account,
+      B.amount      as Amount,
+      B.currency    as Currency
 }
+where
+  B.valid_from <= $parameters.p_key_date
+  and B.valid_to >= $parameters.p_key_date
+  and B.company_code = $parameters.p_company
 ```
 
-### CDS View (V1) — ECC / older S/4HANA only
+### Calling a Parameterized View in ABAP SQL
+
 ```abap
-@AbapCatalog.sqlViewName: 'ZV_MYVIEW'
-@AbapCatalog.compiler.compareFilter: true
-@AbapCatalog.preserveKey: true
-@AccessControl.authorizationCheck: #CHECK
-@EndUserText.label: 'My View Description'
-define view ZI_MyEntity
-  as select from zmy_dbtable as MyAlias
+SELECT *
+  FROM z_i_balancebydate(
+         p_key_date = @sy-datum,
+         p_company  = @lv_bukrs )
+  INTO TABLE @DATA(lt_balance).
+```
+
+### Calling with Default Values
+
+```abap
+-- In CDS: default values can be defined for parameters
+define view entity Z_I_MyView
+  with parameters
+    @Environment.systemField: #SYSTEM_DATE
+    p_date : abap.dats,
+    @Environment.systemField: #CLIENT
+    p_client : mandt
+```
+
+`@Environment.systemField` auto-fills from system at runtime — no caller input needed.
+
+Supported values:
+
+| Annotation Value | Filled With |
+|---|---|
+| `#SYSTEM_DATE` | `SY-DATUM` |
+| `#CLIENT` | `SY-MANDT` |
+| `#USER` | `SY-UNAME` |
+| `#SYSTEM_LANGUAGE` | `SY-LANGU` |
+
+### Passing Parameters Through Associations
+
+When a parameterized view is used as an association target, pass parameters explicitly:
+
+```abap
+define view entity Z_I_Header
+  as select from zheader as H
+  association [1..1] to Z_I_BalanceByDate( p_key_date = $projection.PostingDate,
+                                            p_company  = $projection.CompanyCode )
+    as _Balance on _Balance.Account = $projection.Account
 {
-  key MyAlias.client,
-  key MyAlias.my_key as MyKey,
-      MyAlias.some_field as SomeField
+  key H.document_id  as DocumentId,
+      H.posting_date as PostingDate,
+      H.company_code as CompanyCode,
+      H.account      as Account,
+      _Balance
 }
 ```
 
 ---
 
-## 3. @AbapCatalog Annotations
+## 2. Aggregation Views
 
-| Annotation | Values | Notes |
-|-----------|--------|-------|
-| `@AbapCatalog.sqlViewName` | `'ZVIEWNAME'` (max 16 chars) | **V1 only** — not used in View Entity |
-| `@AbapCatalog.compiler.compareFilter` | `true` / `false` | V1 only |
-| `@AbapCatalog.preserveKey` | `true` / `false` | V1 only |
-| `@AbapCatalog.viewEnhancementCategory` | `[#NONE]`, `[#PROJECTION_LIST]` | For extensibility |
+### GROUP BY / COUNT / SUM
+
+```abap
+define view entity Z_I_SalesAgg
+  as select from zsales as S
+{
+  key S.company_code    as CompanyCode,
+  key S.fiscal_year     as FiscalYear,
+  key S.product_id      as ProductId,
+      @Semantics.amount.currencyCode: 'Currency'
+      sum( S.net_amount ) as TotalAmount,
+      @Semantics.currencyCode: true
+      S.currency        as Currency,
+      count(*)          as RecordCount
+}
+group by
+  S.company_code,
+  S.fiscal_year,
+  S.product_id,
+  S.currency
+```
+
+### HAVING clause
+
+```abap
+define view entity Z_I_TopSales
+  as select from zsales as S
+{
+  key S.product_id     as ProductId,
+      sum( S.net_amount ) as TotalAmount,
+      S.currency       as Currency
+}
+group by S.product_id, S.currency
+having sum( S.net_amount ) > 10000
+```
+
+### Analytics Annotations (Cube / Dimension)
+
+```abap
+-- Fact/Cube view
+@Analytics.dataCategory: #FACT
+@Analytics.dataExtraction.enabled: true
+@Analytics.dataExtraction.delta.byElement.name: 'LastChangedAt'
+define view entity Z_I_SalesCube
+  as select from zsales as S
+  association [0..1] to Z_I_Product as _Product
+    on $projection.ProductId = _Product.ProductId
+{
+  @Analytics.dimension: true
+  key S.product_id   as ProductId,
+
+  @Analytics.dimension: true
+  key S.company_code as CompanyCode,
+
+  @Analytics.measure: true
+  @Semantics.amount.currencyCode: 'Currency'
+  sum( S.net_amount ) as TotalAmount,
+
+  @Semantics.currencyCode: true
+  S.currency as Currency,
+
+  _Product
+}
+group by S.product_id, S.company_code, S.currency
+
+-- Dimension view
+@Analytics.dataCategory: #DIMENSION
+define view entity Z_I_Product
+  as select from zmaterial as M
+{
+  key M.product_id   as ProductId,
+      M.product_name as ProductName,
+      M.category     as Category
+}
+```
 
 ---
 
-## 4. @UI Annotations
+## 3. Table Functions
 
-> Always verify current annotations at: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/b3b02cf03c894498b1f01a303ec81e0e.html
+Table functions expose ABAP logic as a CDS-readable source. Required when:
+- Complex ABAP processing needed (loops, function module calls)
+- Dynamic WHERE conditions
+- Cross-client or client-independent reads
+- Legacy API integration
 
-### Line Item (List Report table columns)
+### DDL — Define Table Function
+
 ```abap
-@UI.lineItem: [{ position: 10, importance: #HIGH, label: 'My Field' }]
-SomeField,
-```
-- `position`: determines column order — **always set this**, otherwise order is undefined
-- `importance`: `#HIGH` (always shown), `#MEDIUM`, `#LOW` (collapsed on mobile)
-- `label`: overrides the field label in the list
+@EndUserText.label: 'Custom Table Function'
+@ClientHandling.type: #CLIENT_DEPENDENT
+@ClientHandling.algorithm: #SESSION_VARIABLE
 
-### Header Info (Object Page title/subtitle)
-```abap
-@UI.headerInfo: {
-  typeName: 'Order',
-  typeNamePlural: 'Orders',
-  title: { type: #STANDARD, value: 'OrderId' },
-  description: { type: #STANDARD, value: 'Description' }
-}
-```
-Place this annotation at the **view entity level**, not on individual fields.
-
-### Facets (Object Page sections)
-```abap
-@UI.facet: [
-  {
-    id: 'GeneralData',
-    purpose: #STANDARD,
-    type: #COLLECTION,
-    label: 'General Data',
-    position: 10
-  },
-  {
-    id: 'GeneralDataFields',
-    purpose: #STANDARD,
-    type: #FIELDGROUP_REFERENCE,
-    label: 'General Data',
-    targetQualifier: 'GeneralData',
-    parentId: 'GeneralData',
-    position: 10
+define table function Z_TF_OpenItems
+  with parameters
+    @Environment.systemField: #CLIENT
+    p_client      : abap.clnt,
+    p_company     : bukrs,
+    p_key_date    : abap.dats
+  returns {
+    client        : abap.clnt;
+    company_code  : bukrs;
+    document_id   : belnr_d;
+    open_amount   : wrbtr;
+    currency      : waers;
   }
-]
+  implemented by method ZCL_TF_OPEN_ITEMS=>get_open_items;
 ```
 
-### Field Group (Object Page form fields)
+### ABAP Implementation Class
+
 ```abap
-@UI.fieldGroup: [{ qualifier: 'GeneralData', position: 10 }]
-SomeField,
+CLASS zcl_tf_open_items DEFINITION
+  PUBLIC FINAL
+  CREATE PUBLIC.
+
+  PUBLIC SECTION.
+    INTERFACES if_amdp_marker_hdb.
+
+    CLASS-METHODS get_open_items
+      FOR TABLE FUNCTION z_tf_openitems.
+
+ENDCLASS.
+
+CLASS zcl_tf_open_items IMPLEMENTATION.
+
+  METHOD get_open_items
+    BY DATABASE FUNCTION FOR HDB
+    LANGUAGE SQLSCRIPT
+    OPTIONS READ-ONLY
+    USING zbseg zbkpf.
+
+    -- SQLScript body (runs on HANA)
+    DECLARE lt_docs TABLE (
+      client       NVARCHAR(3),
+      company_code NVARCHAR(4),
+      document_id  NVARCHAR(10),
+      open_amount  DECIMAL(23,2),
+      currency     NVARCHAR(5)
+    );
+
+    lt_docs = SELECT
+        b.mandt        AS client,
+        b.bukrs        AS company_code,
+        b.belnr        AS document_id,
+        SUM(s.dmbtr)   AS open_amount,
+        s.waers        AS currency
+      FROM zbkpf AS b
+      INNER JOIN zbseg AS s ON b.mandt = s.mandt
+                            AND b.bukrs = s.bukrs
+                            AND b.belnr = s.belnr
+      WHERE b.mandt    = :p_client
+        AND b.bukrs    = :p_company
+        AND b.budat   <= :p_key_date
+        AND s.augdt    = '00000000'  -- not cleared
+      GROUP BY b.mandt, b.bukrs, b.belnr, s.waers;
+
+    RETURN SELECT * FROM :lt_docs;
+
+  ENDMETHOD.
+
+ENDCLASS.
 ```
 
-### Selection Field (Filter bar in List Report)
+### Using Table Function in Another CDS View
+
 ```abap
-@UI.selectionField: [{ position: 10 }]
-SomeField,
-```
-
-### Identification (Action button area on Object Page)
-```abap
-@UI.identification: [{ position: 10 }]
-SomeField,
-```
-
-### Hidden / Read-Only
-```abap
-@UI.hidden: true
-@UI.fieldControl: { path: '_FieldControlField', qualifier: 'SomeField' }
-```
-
----
-
-## 5. @Search Annotations
-
-> Verify at: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/f38a7477f7b2421fad05002d5b98e5a3.html
-
-### Enable Search on a View
-```abap
-@Search.searchable: true
-define view entity ZI_MyEntity ...
-```
-
-### Mark Fields as Searchable / Default Search
-```abap
-@Search.defaultSearchElement: true
-@Search.fuzzinessThreshold: 0.8
-SomeTextField,
-
-@Search.ranking: #HIGH
-KeyField,
-```
-
-| Annotation | Values | Notes |
-|-----------|--------|-------|
-| `@Search.searchable` | `true` | On view level — enables full-text search |
-| `@Search.defaultSearchElement` | `true` | Field included in default search |
-| `@Search.fuzzinessThreshold` | `0.0` – `1.0` | Fuzzy matching tolerance |
-| `@Search.ranking` | `#HIGH`, `#MEDIUM`, `#LOW` | Relevance ranking |
-
----
-
-## 6. @OData Annotations
-
-> **Important**: `@OData.publish: true` is **deprecated**. Always use explicit Service Definition + Service Binding.
-
-### Current correct approach (ABAP Cloud / S/4HANA ≥2020)
-```abap
--- On the view: just mark it as part of a service (done in Service Definition, not here)
--- No @OData.publish: true needed
-```
-
-Service Definition (separate object):
-```abap
-@EndUserText.label: 'My Service Definition'
-define service ZUI_MyService {
-  expose ZC_MyEntity as MyEntity;
-  expose ZI_OtherEntity as OtherEntity;
+define view entity Z_I_OpenItemsView
+  as select from Z_TF_OpenItems(
+                   p_client   = $session.client,
+                   p_company  = '1000',
+                   p_key_date = $session.system_date ) as TF
+{
+  TF.company_code as CompanyCode,
+  TF.document_id  as DocumentId,
+  TF.open_amount  as OpenAmount,
+  TF.currency     as Currency
 }
 ```
 
-### @OData on field level (still valid)
-```abap
-@OData.Type: 'Edm.String'
-@OData.MaxLength: 40
-SomeField,
-```
+### Restrictions
+- ABAP Cloud: Table functions **not supported** (use ABAP-managed queries instead)
+- Implementation must use `BY DATABASE FUNCTION FOR HDB LANGUAGE SQLSCRIPT`
+- Cannot use ABAP variables — only SQLScript inside implementation
+- `OPTIONS READ-ONLY` is mandatory for most scenarios
 
 ---
 
-## 7. @ObjectModel Annotations
+## 4. CDS Hierarchy
 
-> Verify at: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/45f1db921be04abb89dad8ab9ca6c3de.html
+Define parent-child hierarchies navigable in OData and Fiori Tree tables.
 
-### Usage Type (VDM classification)
+### Recursive Hierarchy
+
 ```abap
-@ObjectModel.usageType: {
-  serviceQuality: #A,
-  sizeCategory: #S,
-  dataClass: #MASTER
+define hierarchy Z_H_CostCenterHier
+  as parent child hierarchy (
+    source Z_I_CostCenter
+    child to parent association _Parent
+    start where
+      ParentCostCenter is initial
+    siblings order by
+      CostCenter ascending
+  )
+{
+  CostCenter,
+  CostCenterName,
+  ParentCostCenter,
+  ValidFrom,
+  ValidTo
 }
 ```
 
-### Foreign Key / Text Association
+### Source View for Hierarchy
+
 ```abap
-@ObjectModel.text.association: '_Text'
-StatusCode,
-
-@ObjectModel.foreignKey.association: '_Status'
-StatusCode,
-```
-
-### Readable / Updatable (RAP integration)
-```abap
-@ObjectModel.createEnabled: true
-@ObjectModel.updateEnabled: true
-@ObjectModel.deleteEnabled: true
-```
-
----
-
-## 8. @AccessControl / DCL
-
-> Verify at: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/4f826dad6c034ff0b7dfc82cc79ad5f9.html
-
-### On the view
-```abap
--- Enforce authorization check (default in ABAP Cloud)
-@AccessControl.authorizationCheck: #CHECK
-
--- Explicitly disable (use carefully, document why)
-@AccessControl.authorizationCheck: #NOT_REQUIRED
-
--- Not classified (avoid — causes warning in ABAP Cloud)
-@AccessControl.authorizationCheck: #NOT_ALLOWED
-```
-
-**Rule**: If no DCL file exists for a view with `#CHECK`, **access is denied by default** in ABAP Cloud. Either create a DCL or set `#NOT_REQUIRED`.
-
-### DCL File (Access Control)
-```abap
-@MappingRole: true
-define role ZI_MyEntity {
-  grant select on ZI_MyEntity
-    where (Client) = aspect pfcg_auth(ZMY_AUTH_OBJ, ACTVT, '03');
+define view entity Z_I_CostCenter
+  as select from kst as K
+  association [0..1] to Z_I_CostCenter as _Parent
+    on $projection.ParentCostCenter = _Parent.CostCenter
+    and $projection.ControllingArea  = _Parent.ControllingArea
+{
+  key K.kostl       as CostCenter,
+  key K.kokrs       as ControllingArea,
+      K.ktext       as CostCenterName,
+      K.verak       as ParentCostCenter,
+      K.datab       as ValidFrom,
+      K.datbi       as ValidTo,
+      _Parent
 }
 ```
 
----
+### Hierarchy Annotations
 
-## 9. Value Help (SearchHelp)
-
-### Annotating a field to use a value help view
 ```abap
-@Consumption.valueHelpDefinition: [{
-  entity: {
-    name: 'ZI_StatusValueHelp',
-    element: 'StatusCode'
+@Hierarchy.parentChild: [{
+  recurse: {
+    by: 'ParentCostCenter',  -- field pointing to parent key
+    to: ['CostCenter']       -- key fields of parent
   }
 }]
-StatusCode,
 ```
 
-### Defining a value help view
+---
+
+## 5. View Extensions
+
+Extend an existing CDS view to add fields without modifying the original.
+Used in customer/partner extensions and vertical industry add-ons.
+
+### Extend View (Append Fields)
+
 ```abap
-@Search.searchable: true
-@ObjectModel.resultSet.sizeCategory: #XS
-define view entity ZI_StatusValueHelp
-  as select from zstatus_table
+-- Extend a standard SAP view with customer fields
+extend view entity I_BusinessPartner with Z_E_BPExtension
 {
-  key status_code   as StatusCode,
-      @Search.defaultSearchElement: true
-      status_text   as StatusText
+  -- Extension includes fields from an APPEND structure
+  bupa_extension.zcustomer_segment as CustomerSegment,
+  bupa_extension.zrisk_category    as RiskCategory
+}
+```
+
+### Extension via Include Structure (DDIC)
+
+1. Create an APPEND structure `ZI_BUPA_EXT` on the DDIC table
+2. Extend the CDS view referencing those fields
+
+### Restrictions
+- Only append fields; cannot change key fields or filter conditions
+- Requires `@AbapCatalog.viewEnhancementCategory: [#PROJECTION_LIST]` on source
+- Not available in ABAP Cloud for SAP standard objects (use released extension points)
+
+---
+
+## 6. Abstract Entities
+
+Abstract entities define the parameter/result structure for RAP actions and functions.
+They have no database persistence — purely structural.
+
+### Define Abstract Entity
+
+```abap
+-- Input structure for a RAP action
+define abstract entity Z_D_AcceptTravel_Params
+{
+  Reason    : abap.char( 255 );
+  NotifyUser : abap_boolean;
+}
+
+-- Output/result structure
+define abstract entity Z_D_TravelPrice_Result
+{
+  TotalPrice   : wrbtr;
+  CurrencyCode : waers;
+  Breakdown    : abap.char( 1000 );
+}
+```
+
+### Usage in BDEF
+
+```abap
+define behavior for Z_I_Travel alias Travel
+{
+  -- Action with input parameter and result
+  action acceptTravel
+    parameter Z_D_AcceptTravel_Params
+    result [1] $self;
+
+  -- Static factory action with parameter
+  static factory action createByTemplate
+    parameter Z_D_TravelTemplate
+    result [1] $self;
+
+  -- Function returning scalar result
+  static function calculatePrice
+    parameter Z_D_PriceInput
+    result [1] Z_D_TravelPrice_Result;
 }
 ```
 
 ---
 
-## 10. VDM Layers (R/I/C)
+## 7. Custom Entities
 
-SAP Virtual Data Model naming convention:
+Custom entities expose non-database data via a custom query class implementing
+`IF_RAP_QUERY_PROVIDER`. Use when data comes from RFC, REST API, or complex logic.
 
-| Prefix | Layer | Purpose |
-|--------|-------|---------|
-| `ZR_` / `I_` | **R** — Raw / Basic Interface View | Direct table access, no business logic |
-| `ZI_` / `I_` | **I** — Interface/Composite View | Joins, enrichment, associations |
-| `ZC_` / `C_` | **C** — Consumption View | Optimized for one specific Fiori app / OData service |
+### Define Custom Entity
 
-**Rule**: Never expose `R_` (Raw) views directly in a service. Always go through `C_` (Consumption) views.
+```abap
+@EndUserText.label: 'Flight Availability (External API)'
+@ObjectModel.query.implementedBy: 'ABAP:ZCL_FLIGHT_QUERY_PROVIDER'
 
-Example naming:
+define custom entity Z_CE_FlightAvailability
+{
+  key ConnectionId  : /dmo/connection_id;
+  key FlightDate    : /dmo/flight_date;
+      AirlineId     : /dmo/carrier_id;
+      AvailableSeats: /dmo/seats_max;
+      Price         : /dmo/flight_price;
+      CurrencyCode  : /dmo/currency_code;
+}
 ```
-ZR_SalesOrder        ← selects from VBAK directly
-ZI_SalesOrder        ← joins VBAK + VBAP + texts, builds associations
-ZC_SalesOrderTP      ← consumption view for the Fiori transactional app
+
+### Query Provider Class
+
+```abap
+CLASS zcl_flight_query_provider DEFINITION
+  PUBLIC FINAL CREATE PUBLIC.
+
+  PUBLIC SECTION.
+    INTERFACES if_rap_query_provider.
+
+ENDCLASS.
+
+CLASS zcl_flight_query_provider IMPLEMENTATION.
+
+  METHOD if_rap_query_provider~select.
+
+    DATA: lt_flights TYPE TABLE OF z_ce_flightavailability.
+
+    " Read filter conditions from request
+    DATA(lo_filter) = io_request->get_filter( ).
+    DATA(lt_ranges) = lo_filter->get_as_ranges( ).
+
+    " Call external source (RFC / HTTP / ABAP)
+    " ... your logic here ...
+
+    " Apply $top / $skip
+    DATA(lv_top)  = io_request->get_paging( )->get_page_size( ).
+    DATA(lv_skip) = io_request->get_paging( )->get_offset( ).
+
+    " Return data
+    io_response->set_total_number_of_records( lines( lt_flights ) ).
+    io_response->set_data( lt_flights ).
+
+  ENDMETHOD.
+
+ENDCLASS.
 ```
 
 ---
 
-## 11. Common Anti-Patterns
+## 8. Virtual Elements
 
-| Anti-Pattern | Problem | Correct Approach |
-|-------------|---------|-----------------|
-| `@OData.publish: true` | Deprecated shortcut | Use Service Definition + Service Binding |
-| Missing `position` on `@UI.lineItem` | Columns render in undefined order | Always set `position: 10/20/30...` |
-| `@AbapCatalog.sqlViewName` in View Entity | Not applicable, causes warning | Only use for V1 `define view` |
-| No `@AccessControl` annotation | Implicit check — may deny all access in ABAP Cloud | Explicitly set `#CHECK` or `#NOT_REQUIRED` |
-| Exposing `R_` view directly in service | Violates VDM layering, fragile | Always expose through `C_` consumption view |
-| Hardcoding client in WHERE | Not client-safe | Use `$session.client` or rely on implicit client handling |
-| `association [1..1]` when data may be missing | Runtime error if join fails | Use `[0..1]` unless guaranteed |
-| Missing `_AssocName` exposure at end of field list | Association not accessible in OData | Always expose all associations at the bottom |
+Virtual elements are computed fields in a CDS projection view — they have no DB column
+but are calculated at runtime via an ABAP implementation class.
+
+### Declare Virtual Element in Projection View
+
+```abap
+define root view entity Z_C_Travel
+  provider contract transactional_query
+  as projection on Z_I_Travel
+{
+  key TravelId,
+      AgencyId,
+      OverallStatus,
+
+      -- Virtual element: computed at runtime
+      @ObjectModel.virtualElement: true
+      @ObjectModel.virtualElementCalculatedBy: 'ABAP:ZCL_TRAVEL_VIRTUAL=>calculate'
+      cast( '' as abap_boolean ) as IsOverdue,
+
+      @ObjectModel.virtualElement: true
+      @ObjectModel.virtualElementCalculatedBy: 'ABAP:ZCL_TRAVEL_VIRTUAL=>calculate'
+      cast( 0 as int4 ) as DaysUntilDeparture
+}
+```
+
+### Implementation Class
+
+```abap
+CLASS zcl_travel_virtual DEFINITION
+  PUBLIC FINAL CREATE PUBLIC.
+
+  PUBLIC SECTION.
+    INTERFACES if_sadl_exit_calc_element_read.
+
+ENDCLASS.
+
+CLASS zcl_travel_virtual IMPLEMENTATION.
+
+  METHOD if_sadl_exit_calc_element_read~calculate.
+
+    DATA(lt_travel) = CAST #( it_original_data ).
+
+    LOOP AT lt_travel INTO DATA(ls_travel) ASSIGNING FIELD-SYMBOL(<fs>).
+      DATA(lv_today)   = cl_abap_context_info=>get_system_date( ).
+
+      " Calculate DaysUntilDeparture
+      <fs>-DaysUntilDeparture =
+        cl_abap_tstmp=>subtract( tstmp1 = ls_travel-BeginDate
+                                  tstmp2 = lv_today ).
+
+      " Calculate IsOverdue flag
+      <fs>-IsOverdue = COND #( WHEN ls_travel-EndDate < lv_today
+                                 AND ls_travel-OverallStatus <> 'X'
+                               THEN abap_true
+                               ELSE abap_false ).
+    ENDLOOP.
+
+    ct_calculated_data = lt_travel.
+
+  ENDMETHOD.
+
+ENDCLASS.
+```
+
+### Restrictions
+- Only in **projection/consumption** views, not interface views
+- Cannot be used in WHERE, ORDER BY, or aggregations
+- Performance: called once per result set, not per row independently
+- ABAP Cloud: supported but class must be released
 
 ---
 
-## 12. Environment Differences
+## 9. Metadata Extensions (DDLX)
 
-| Feature | ECC (V1 only) | S/4HANA On-Prem ≥2020 | S/4HANA Cloud / BTP |
-|---------|--------------|----------------------|---------------------|
-| `define view entity` | ❌ | ✅ | ✅ (preferred) |
-| `@AbapCatalog.sqlViewName` | ✅ required | ✅ for V1 / ❌ for V2 | ❌ not used |
-| `@OData.publish: true` | ✅ (old way) | ⚠️ deprecated | ❌ not supported |
-| DCL / Access Control | Limited | ✅ | ✅ mandatory |
-| `@Search.searchable` | ⚠️ limited | ✅ | ✅ |
-| CDS Table Function (AMDP) | ❌ | ✅ | ✅ |
-| CDS Hierarchy | ❌ | ✅ ≥2022 | ✅ |
-| Abstract Entity | ❌ | ✅ ≥2022 | ✅ |
+Metadata Extensions separate UI annotations from data model annotations.
+This enables the Metadata-Driven UI pattern and supports layered extensions.
+
+### Create Metadata Extension (`.ddlx` file in ADT)
+
+```abap
+@Metadata.layer: #CUSTOMER
+annotate entity Z_C_Travel with
+{
+  @UI.headerInfo: {
+    typeName: 'Travel',
+    typeNamePlural: 'Travels',
+    title: {
+      type: #STANDARD,
+      value: 'TravelId'
+    },
+    description: {
+      value: 'Description'
+    },
+    imageUrl: 'PictureUrl'
+  }
+
+  @UI.presentationVariant: [{
+    sortOrder: [{ by: 'BeginDate', direction: #DESC }],
+    visualizations: [{ type: #AS_LINEITEM }]
+  }]
+
+  @UI.selectionField: [{ position: 10 }]
+  @UI.lineItem: [{ position: 10, importance: #HIGH }]
+  @UI.identification: [{ position: 10 }]
+  TravelId;
+
+  @UI.selectionField: [{ position: 20 }]
+  @UI.lineItem: [{ position: 20 }]
+  AgencyId;
+
+  @UI.lineItem: [{ position: 30, importance: #MEDIUM }]
+  @UI.identification: [{ position: 30 }]
+  BeginDate;
+
+  @UI.lineItem: [{ position: 40 }]
+  EndDate;
+
+  @UI.lineItem: [{
+    position: 50,
+    criticality: 'StatusCriticality',
+    criticalityRepresentation: #WITH_ICON,
+    label: 'Status'
+  }]
+  @UI.identification: [{ position: 50 }]
+  @UI.selectionField: [{ position: 50 }]
+  OverallStatus;
+
+  @UI.facet: [{
+    id:       'GeneralInfo',
+    purpose:  #STANDARD,
+    type:     #IDENTIFICATION_REFERENCE,
+    label:    'General Information',
+    position: 10
+  }, {
+    id:           'Bookings',
+    purpose:      #STANDARD,
+    type:         #LINEITEM_REFERENCE,
+    label:        'Bookings',
+    position:     20,
+    targetElement: '_Booking'
+  }]
+  @UI.hidden: true
+  LocalLastChangedAt;
+}
+```
+
+### Metadata Layers (priority order, highest first)
+
+| Layer | Used By | Priority |
+|---|---|---|
+| `#CUSTOMER` | Customer-specific annotations | Highest |
+| `#PARTNER` | Partner add-ons | High |
+| `#INDUSTRY` | Industry solutions | Medium |
+| `#LOCALIZATION` | Country-specific | Low |
+| `#CORE` | SAP standard / app developer | Lowest |
+
+### Prerequisites on Consumption View
+
+```abap
+-- Consumption view MUST have:
+@Metadata.allowExtensions: true
+```
 
 ---
 
-## Official Docs — Always Cite These
+## 10. CDS Test Double Framework
 
-- CDS Annotations full reference: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/630ce9b386b84e80bfade96779fbaeec.html
-- @UI Annotations: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/b3b02cf03c894498b1f01a303ec81e0e.html
-- CDS View Entity syntax: https://help.sap.com/doc/abapdocu/latest/en-US/index.htm?file=abencds_v2_view.htm
-- DCL: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/4f826dad6c034ff0b7dfc82cc79ad5f9.html
-- VDM Guide: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/8a8cee943ef944fe8936f4a60d28e86e.html
+Unit-test CDS views in isolation by substituting DB tables with test data.
+
+### Test Class Structure
+
+```abap
+CLASS zcl_test_z_i_travel DEFINITION
+  PUBLIC FINAL
+  FOR TESTING
+  RISK LEVEL HARMLESS
+  DURATION SHORT.
+
+  PRIVATE SECTION.
+    CLASS-DATA: environment TYPE REF TO if_cds_test_environment.
+
+    CLASS-METHODS:
+      class_setup,
+      class_teardown.
+
+    METHODS:
+      setup,
+      test_open_travels FOR TESTING,
+      test_accepted_travel FOR TESTING.
+
+ENDCLASS.
+
+CLASS zcl_test_z_i_travel IMPLEMENTATION.
+
+  METHOD class_setup.
+    " Create test environment for the CDS view under test
+    environment = cl_cds_test_environment=>create(
+                    i_for_entity = 'Z_I_TRAVEL' ).
+  ENDMETHOD.
+
+  METHOD class_teardown.
+    environment->destroy( ).
+  ENDMETHOD.
+
+  METHOD setup.
+    " Clear all test data before each test
+    environment->clear_doubles( ).
+  ENDMETHOD.
+
+  METHOD test_open_travels.
+    " Arrange: insert test data into CDS double
+    environment->insert_test_data(
+      i_data = VALUE ztravel_t(
+        ( client = sy-mandt travel_id = '00000001'
+          agency_id = '000001' overall_status = 'O'
+          begin_date = '20241201' end_date = '20241231'
+          currency_code = 'EUR' booking_fee = '100' )
+        ( client = sy-mandt travel_id = '00000002'
+          agency_id = '000002' overall_status = 'A'
+          begin_date = '20241101' end_date = '20241130'
+          currency_code = 'USD' booking_fee = '200' ) ) ).
+
+    " Act: query the CDS view
+    SELECT * FROM z_i_travel
+      WHERE overall_status = 'O'
+      INTO TABLE @DATA(lt_result).
+
+    " Assert
+    cl_abap_unit_assert=>assert_equals(
+      act = lines( lt_result )
+      exp = 1
+      msg = 'Expected 1 open travel' ).
+
+    cl_abap_unit_assert=>assert_equals(
+      act = lt_result[ 1 ]-travel_id
+      exp = '00000001' ).
+  ENDMETHOD.
+
+  METHOD test_accepted_travel.
+    environment->insert_test_data(
+      i_data = VALUE ztravel_t(
+        ( client = sy-mandt travel_id = '00000003'
+          overall_status = 'A'
+          begin_date = '20241201' end_date = '20241231'
+          currency_code = 'EUR' booking_fee = '300' ) ) ).
+
+    SELECT SINGLE * FROM z_i_travel
+      WHERE travel_id = '00000003'
+      INTO @DATA(ls_travel).
+
+    cl_abap_unit_assert=>assert_equals(
+      act = ls_travel-overall_status
+      exp = 'A' ).
+  ENDMETHOD.
+
+ENDCLASS.
+```
+
+### Test Environment with Multiple Tables
+
+```abap
+" If the CDS view joins multiple tables, register all of them
+environment = cl_cds_test_environment=>create_for_multiple_cds(
+                i_for_entities = VALUE #(
+                  ( i_for_entity = 'Z_I_TRAVEL' )
+                  ( i_for_entity = 'Z_I_BOOKING' ) ) ).
+```
+
+### Restrictions
+- Only works for views based on **DDIC transparent tables** — not table functions or custom entities
+- Test doubles replace DB access at statement level — no real DB I/O
+- Parameterized views: pass parameters in `SELECT ... FROM view( p1 = @val )`
+- ABAP Cloud: fully supported
+
+---
+
+## Version Compatibility Summary
+
+| Feature | 7.40 | 7.50 | 7.54 | 7.57+ | ABAP Cloud |
+|---|---|---|---|---|---|
+| CDS Parameters | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Table Functions | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Aggregation Views | ✅ | ✅ | ✅ | ✅ | ✅ |
+| CDS Hierarchy | ❌ | ✅ | ✅ | ✅ | ✅ |
+| View Extensions | ✅ | ✅ | ✅ | ✅ | ⚠️ released only |
+| Abstract Entities | ❌ | ❌ | ✅ | ✅ | ✅ |
+| Custom Entities | ❌ | ❌ | ✅ | ✅ | ✅ |
+| Virtual Elements | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Metadata Extensions | ❌ | ✅ | ✅ | ✅ | ✅ |
+| CDS Test Doubles | ❌ | ❌ | ❌ | ✅ (7.56+) | ✅ |
