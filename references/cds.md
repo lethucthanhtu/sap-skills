@@ -1,184 +1,366 @@
-# ABAP CDS (Core Data Services)
+# CDS (Core Data Services) Reference
 
-Reference: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/5dde66e57f08440aab94bcfeb2e3e6f6/f7aa9f58a3d34e46bb20e2eb16cb53cf.html
-ABAP Keyword Docs (CDS): https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/index.htm?file=abencds.htm
-
----
-
-## CDS View Types Overview
-
-| Type | Use Case | Annotation | Notes |
-|------|----------|------------|-------|
-| Basic Interface View | Raw data, no business semantics | `@VDM.viewType: #BASIC` | Reads from DB tables directly |
-| Composite Interface View | Joins multiple basic views | `@VDM.viewType: #COMPOSITE` | Business-level joins |
-| Consumption View | Exposed to OData/Fiori | `@VDM.viewType: #CONSUMPTION` | UI annotations here |
-| Transactional View | Used by RAP business objects | — | Source for RAP |
-| Extension View | Custom fields via key user extensibility | `@VDM.viewType: #EXTENSION` | S/4 Cloud only |
-
-**For S/4HANA Cloud Public**: Only use released CDS views (C1 contract). Check via ABAP Development Tools (ADT) → Release State.
+> Before answering CDS questions, search SAP Help Portal for the specific annotation or feature.
+> Annotations change between releases. Always verify and cite.
+> Search: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/630ce9b386b84e80bfade96779fbaeec.html
 
 ---
 
-## Basic CDS View Structure
-
-```cds
-@AbapCatalog.viewEnhancementCategory: [#NONE]
-@AccessControl.authorizationCheck: #CHECK
-@EndUserText.label: 'Sales Order Header'
-@Metadata.ignorePropagatedAnnotations: true
-@VDM.viewType: #BASIC
-
-define view entity ZI_SalesOrderHeader
-  as select from vbak
-  association [0..1] to ZI_SalesOrgText as _SalesOrg
-    on $projection.SalesOrganization = _SalesOrg.SalesOrganization
-{
-  key vbeln                    as SalesOrder,
-      erdat                    as CreationDate,
-      erzet                    as CreationTime,
-      vkorg                    as SalesOrganization,
-      netwr                    as NetValue,
-      waerk                    as DocumentCurrency,
-
-      /* Associations */
-      _SalesOrg
-}
-```
+## Table of Contents
+1. [CDS View Types by Environment](#1-cds-view-types-by-environment)
+2. [Basic CDS View Structure](#2-basic-cds-view-structure)
+3. [@AbapCatalog Annotations](#3-abapcatalog-annotations)
+4. [@UI Annotations](#4-ui-annotations)
+5. [@Search Annotations](#5-search-annotations)
+6. [@OData Annotations](#6-odata-annotations)
+7. [@ObjectModel Annotations](#7-objectmodel-annotations)
+8. [@AccessControl / DCL](#8-accesscontrol--dcl)
+9. [Value Help (SearchHelp)](#9-value-help-searchhelp)
+10. [VDM Layers (R/I/C)](#10-vdm-layers-ric)
+11. [Common Anti-Patterns](#11-common-anti-patterns)
+12. [Environment Differences](#12-environment-differences)
 
 ---
 
-## VDM (Virtual Data Model) Layers
+## 1. CDS View Types by Environment
 
-```
-DB Tables (vbak, vbap...)
-       ↓
-Basic Interface Views (ZI_*)       ← Direct table read, element semantics
-       ↓
-Composite Interface Views (ZI_*)   ← Business-level joins
-       ↓
-Consumption Views (ZC_*)           ← UI/OData annotations, for Fiori
-```
+| View Type | Syntax Keyword | Available In | Notes |
+|-----------|---------------|--------------|-------|
+| CDS View (V1) | `define view` | ECC, S/4HANA all | Older style, needs `@AbapCatalog.sqlViewName` |
+| CDS View Entity (V2) | `define view entity` | ABAP Cloud, S/4HANA ≥2020 | Preferred in ABAP Cloud, no sqlViewName needed |
+| CDS Table Function | `define table function` | S/4HANA, ABAP Cloud | For complex logic needing AMDP |
+| CDS Hierarchy | `define hierarchy` | S/4HANA ≥2022, ABAP Cloud | For recursive/parent-child structures |
+| Abstract Entity | `define abstract entity` | ABAP Cloud | For RAP action parameters/results |
+| Custom Entity | `define custom entity` | ABAP Cloud | For data from external sources via AMDP |
 
-Always follow this layering. Do NOT put `@UI` annotations on interface views.
-
----
-
-## Key Annotations
-
-### Access Control
-```cds
-@AccessControl.authorizationCheck: #CHECK          " enforce DCL (recommended)
-@AccessControl.authorizationCheck: #NOT_REQUIRED   " dev/test only
-```
-
-Always pair with a DCL (Data Control Language) object:
-```cds
-@MappingRole: true
-define role ZI_SalesOrderHeader {
-  grant select on ZI_SalesOrderHeader
-    where ( SalesOrganization ) = aspect pfcg_auth( V_VBKA_VKO, VKORG, ACTVT = '03' );
-}
-```
-
-### OData Exposure
-```cds
-@OData.publish: true   " V2 auto-publish (deprecated approach)
-" Prefer: expose via Service Definition + Service Binding (ODATA V4)
-```
-
-### Search & Filter (Consumption Layer)
-```cds
-@Search.searchable: true
-@Search.defaultSearchElement: true
-
-@Consumption.filter.selectionType: #RANGE
-@Consumption.filter.mandatory: false
-```
-
-### UI Annotations (Consumption Views only)
-```cds
-@UI.lineItem: [{ position: 10, label: 'Sales Order' }]
-@UI.selectionField: [{ position: 10 }]
-@UI.identification: [{ position: 10 }]
-@UI.headerInfo.typeName: 'Sales Order'
-@UI.headerInfo.typeNamePlural: 'Sales Orders'
-@UI.headerInfo.title.value: 'SalesOrder'
-```
+**Rule**: In ABAP Cloud / BTP, always use `define view entity`. Never use the old `define view` with `@AbapCatalog.sqlViewName`.
 
 ---
 
-## Associations vs. Joins
+## 2. Basic CDS View Structure
 
-```cds
-" Association — lazy, only joins if navigated/used in projection
-association [0..1] to ZI_CustomerText as _Customer
-  on $projection.SoldToParty = _Customer.Customer
-
-" Join — always executed
-left outer join ZI_CustomerText as cust
-  on vbak.kunnr = cust.Customer
-
-" Rule: prefer associations for optional/navigation data
-" Use joins only when field is always needed in output
-```
-
----
-
-## Parameters in CDS
-
-```cds
-define view entity ZI_SalesOrderByDate
-  with parameters
-    P_FromDate : dats,
-    P_ToDate   : dats
-  as select from vbak
-  where erdat between $parameters.P_FromDate and $parameters.P_ToDate
-{ ... }
-```
-
-Calling with parameters from ABAP:
+### CDS View Entity (ABAP Cloud / S/4HANA ≥2020) — Preferred
 ```abap
-SELECT * FROM zi_salesorderbydate( p_fromdate = '20240101', p_todate = '20241231' )
-  INTO TABLE @DATA(lt_result).
-```
-
----
-
-## CDS Table Functions (AMDP-backed)
-
-Use when complex logic can't be expressed in CDS syntax:
-```cds
-define table function ZTF_ComplexCalc
-  with parameters
-    @Environment.systemField: #CLIENT
-    P_Client : abap.clnt
-  returns {
-    key SalesOrder : vbeln;
-        NetValue   : netwr;
-  }
-  implemented by method zcl_tf_sales_calc=>get_data;
-```
-
----
-
-## Extension (Custom Fields) — S/4HANA
-
-For key user extensions in S/4HANA Cloud:
-- Use **Custom Fields and Logic** app (no-code) for simple fields
-- For developer extensions: `extend view entity` syntax
-```cds
-extend view entity I_SalesOrderItem with
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'My View Description'
+define view entity ZI_MyEntity
+  as select from zmy_dbtable as MyAlias
+  association [0..1] to ZI_OtherEntity as _Other
+    on $projection.OtherKey = _Other.Key
 {
-  _SalesOrderItem.YY1_CustomField_SLI as CustomField
+      -- Key field
+  key MyAlias.client,
+  key MyAlias.my_key        as MyKey,
+
+      -- Other fields
+      MyAlias.some_field    as SomeField,
+
+      -- Association (always expose)
+      _Other
+}
+```
+
+### CDS View (V1) — ECC / older S/4HANA only
+```abap
+@AbapCatalog.sqlViewName: 'ZV_MYVIEW'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'My View Description'
+define view ZI_MyEntity
+  as select from zmy_dbtable as MyAlias
+{
+  key MyAlias.client,
+  key MyAlias.my_key as MyKey,
+      MyAlias.some_field as SomeField
 }
 ```
 
 ---
 
-## Common Mistakes to Avoid
+## 3. @AbapCatalog Annotations
 
-1. **Direct table access in Cloud**: Never `select from vbak` in ABAP Cloud — use released CDS views (`I_SalesOrder`)
-2. **UI annotations on Interface views**: Only on Consumption views
-3. **Missing DCL**: Always create authorization object when `#CHECK`
-4. **Cartesian join**: Incomplete ON condition causes full cross join
-5. **$projection vs source alias**: Use `$projection` for self-referencing in ON conditions
+| Annotation | Values | Notes |
+|-----------|--------|-------|
+| `@AbapCatalog.sqlViewName` | `'ZVIEWNAME'` (max 16 chars) | **V1 only** — not used in View Entity |
+| `@AbapCatalog.compiler.compareFilter` | `true` / `false` | V1 only |
+| `@AbapCatalog.preserveKey` | `true` / `false` | V1 only |
+| `@AbapCatalog.viewEnhancementCategory` | `[#NONE]`, `[#PROJECTION_LIST]` | For extensibility |
+
+---
+
+## 4. @UI Annotations
+
+> Always verify current annotations at: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/b3b02cf03c894498b1f01a303ec81e0e.html
+
+### Line Item (List Report table columns)
+```abap
+@UI.lineItem: [{ position: 10, importance: #HIGH, label: 'My Field' }]
+SomeField,
+```
+- `position`: determines column order — **always set this**, otherwise order is undefined
+- `importance`: `#HIGH` (always shown), `#MEDIUM`, `#LOW` (collapsed on mobile)
+- `label`: overrides the field label in the list
+
+### Header Info (Object Page title/subtitle)
+```abap
+@UI.headerInfo: {
+  typeName: 'Order',
+  typeNamePlural: 'Orders',
+  title: { type: #STANDARD, value: 'OrderId' },
+  description: { type: #STANDARD, value: 'Description' }
+}
+```
+Place this annotation at the **view entity level**, not on individual fields.
+
+### Facets (Object Page sections)
+```abap
+@UI.facet: [
+  {
+    id: 'GeneralData',
+    purpose: #STANDARD,
+    type: #COLLECTION,
+    label: 'General Data',
+    position: 10
+  },
+  {
+    id: 'GeneralDataFields',
+    purpose: #STANDARD,
+    type: #FIELDGROUP_REFERENCE,
+    label: 'General Data',
+    targetQualifier: 'GeneralData',
+    parentId: 'GeneralData',
+    position: 10
+  }
+]
+```
+
+### Field Group (Object Page form fields)
+```abap
+@UI.fieldGroup: [{ qualifier: 'GeneralData', position: 10 }]
+SomeField,
+```
+
+### Selection Field (Filter bar in List Report)
+```abap
+@UI.selectionField: [{ position: 10 }]
+SomeField,
+```
+
+### Identification (Action button area on Object Page)
+```abap
+@UI.identification: [{ position: 10 }]
+SomeField,
+```
+
+### Hidden / Read-Only
+```abap
+@UI.hidden: true
+@UI.fieldControl: { path: '_FieldControlField', qualifier: 'SomeField' }
+```
+
+---
+
+## 5. @Search Annotations
+
+> Verify at: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/f38a7477f7b2421fad05002d5b98e5a3.html
+
+### Enable Search on a View
+```abap
+@Search.searchable: true
+define view entity ZI_MyEntity ...
+```
+
+### Mark Fields as Searchable / Default Search
+```abap
+@Search.defaultSearchElement: true
+@Search.fuzzinessThreshold: 0.8
+SomeTextField,
+
+@Search.ranking: #HIGH
+KeyField,
+```
+
+| Annotation | Values | Notes |
+|-----------|--------|-------|
+| `@Search.searchable` | `true` | On view level — enables full-text search |
+| `@Search.defaultSearchElement` | `true` | Field included in default search |
+| `@Search.fuzzinessThreshold` | `0.0` – `1.0` | Fuzzy matching tolerance |
+| `@Search.ranking` | `#HIGH`, `#MEDIUM`, `#LOW` | Relevance ranking |
+
+---
+
+## 6. @OData Annotations
+
+> **Important**: `@OData.publish: true` is **deprecated**. Always use explicit Service Definition + Service Binding.
+
+### Current correct approach (ABAP Cloud / S/4HANA ≥2020)
+```abap
+-- On the view: just mark it as part of a service (done in Service Definition, not here)
+-- No @OData.publish: true needed
+```
+
+Service Definition (separate object):
+```abap
+@EndUserText.label: 'My Service Definition'
+define service ZUI_MyService {
+  expose ZC_MyEntity as MyEntity;
+  expose ZI_OtherEntity as OtherEntity;
+}
+```
+
+### @OData on field level (still valid)
+```abap
+@OData.Type: 'Edm.String'
+@OData.MaxLength: 40
+SomeField,
+```
+
+---
+
+## 7. @ObjectModel Annotations
+
+> Verify at: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/45f1db921be04abb89dad8ab9ca6c3de.html
+
+### Usage Type (VDM classification)
+```abap
+@ObjectModel.usageType: {
+  serviceQuality: #A,
+  sizeCategory: #S,
+  dataClass: #MASTER
+}
+```
+
+### Foreign Key / Text Association
+```abap
+@ObjectModel.text.association: '_Text'
+StatusCode,
+
+@ObjectModel.foreignKey.association: '_Status'
+StatusCode,
+```
+
+### Readable / Updatable (RAP integration)
+```abap
+@ObjectModel.createEnabled: true
+@ObjectModel.updateEnabled: true
+@ObjectModel.deleteEnabled: true
+```
+
+---
+
+## 8. @AccessControl / DCL
+
+> Verify at: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/4f826dad6c034ff0b7dfc82cc79ad5f9.html
+
+### On the view
+```abap
+-- Enforce authorization check (default in ABAP Cloud)
+@AccessControl.authorizationCheck: #CHECK
+
+-- Explicitly disable (use carefully, document why)
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+
+-- Not classified (avoid — causes warning in ABAP Cloud)
+@AccessControl.authorizationCheck: #NOT_ALLOWED
+```
+
+**Rule**: If no DCL file exists for a view with `#CHECK`, **access is denied by default** in ABAP Cloud. Either create a DCL or set `#NOT_REQUIRED`.
+
+### DCL File (Access Control)
+```abap
+@MappingRole: true
+define role ZI_MyEntity {
+  grant select on ZI_MyEntity
+    where (Client) = aspect pfcg_auth(ZMY_AUTH_OBJ, ACTVT, '03');
+}
+```
+
+---
+
+## 9. Value Help (SearchHelp)
+
+### Annotating a field to use a value help view
+```abap
+@Consumption.valueHelpDefinition: [{
+  entity: {
+    name: 'ZI_StatusValueHelp',
+    element: 'StatusCode'
+  }
+}]
+StatusCode,
+```
+
+### Defining a value help view
+```abap
+@Search.searchable: true
+@ObjectModel.resultSet.sizeCategory: #XS
+define view entity ZI_StatusValueHelp
+  as select from zstatus_table
+{
+  key status_code   as StatusCode,
+      @Search.defaultSearchElement: true
+      status_text   as StatusText
+}
+```
+
+---
+
+## 10. VDM Layers (R/I/C)
+
+SAP Virtual Data Model naming convention:
+
+| Prefix | Layer | Purpose |
+|--------|-------|---------|
+| `ZR_` / `I_` | **R** — Raw / Basic Interface View | Direct table access, no business logic |
+| `ZI_` / `I_` | **I** — Interface/Composite View | Joins, enrichment, associations |
+| `ZC_` / `C_` | **C** — Consumption View | Optimized for one specific Fiori app / OData service |
+
+**Rule**: Never expose `R_` (Raw) views directly in a service. Always go through `C_` (Consumption) views.
+
+Example naming:
+```
+ZR_SalesOrder        ← selects from VBAK directly
+ZI_SalesOrder        ← joins VBAK + VBAP + texts, builds associations
+ZC_SalesOrderTP      ← consumption view for the Fiori transactional app
+```
+
+---
+
+## 11. Common Anti-Patterns
+
+| Anti-Pattern | Problem | Correct Approach |
+|-------------|---------|-----------------|
+| `@OData.publish: true` | Deprecated shortcut | Use Service Definition + Service Binding |
+| Missing `position` on `@UI.lineItem` | Columns render in undefined order | Always set `position: 10/20/30...` |
+| `@AbapCatalog.sqlViewName` in View Entity | Not applicable, causes warning | Only use for V1 `define view` |
+| No `@AccessControl` annotation | Implicit check — may deny all access in ABAP Cloud | Explicitly set `#CHECK` or `#NOT_REQUIRED` |
+| Exposing `R_` view directly in service | Violates VDM layering, fragile | Always expose through `C_` consumption view |
+| Hardcoding client in WHERE | Not client-safe | Use `$session.client` or rely on implicit client handling |
+| `association [1..1]` when data may be missing | Runtime error if join fails | Use `[0..1]` unless guaranteed |
+| Missing `_AssocName` exposure at end of field list | Association not accessible in OData | Always expose all associations at the bottom |
+
+---
+
+## 12. Environment Differences
+
+| Feature | ECC (V1 only) | S/4HANA On-Prem ≥2020 | S/4HANA Cloud / BTP |
+|---------|--------------|----------------------|---------------------|
+| `define view entity` | ❌ | ✅ | ✅ (preferred) |
+| `@AbapCatalog.sqlViewName` | ✅ required | ✅ for V1 / ❌ for V2 | ❌ not used |
+| `@OData.publish: true` | ✅ (old way) | ⚠️ deprecated | ❌ not supported |
+| DCL / Access Control | Limited | ✅ | ✅ mandatory |
+| `@Search.searchable` | ⚠️ limited | ✅ | ✅ |
+| CDS Table Function (AMDP) | ❌ | ✅ | ✅ |
+| CDS Hierarchy | ❌ | ✅ ≥2022 | ✅ |
+| Abstract Entity | ❌ | ✅ ≥2022 | ✅ |
+
+---
+
+## Official Docs — Always Cite These
+
+- CDS Annotations full reference: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/630ce9b386b84e80bfade96779fbaeec.html
+- @UI Annotations: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/b3b02cf03c894498b1f01a303ec81e0e.html
+- CDS View Entity syntax: https://help.sap.com/doc/abapdocu/latest/en-US/index.htm?file=abencds_v2_view.htm
+- DCL: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/4f826dad6c034ff0b7dfc82cc79ad5f9.html
+- VDM Guide: https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/8a8cee943ef944fe8936f4a60d28e86e.html
