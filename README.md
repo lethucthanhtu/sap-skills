@@ -56,20 +56,17 @@ Extract the archive. You will find all skill folders ready to use.
 ### Step 2 — Upload to Claude.ai
 
 1. Go to [claude.ai](https://claude.ai) and sign in
-2. Navigate to **Settings** → **Skills**, or open a **Project**
-3. Click **"Add Skill"** / **"Upload files"**
-4. Upload the skill folder you need (e.g. `sap-abap-cds/`), including `SKILL.md` and all accompanying reference files
-5. Claude will automatically recognize `SKILL.md` as the entry point
+2. On **side bar** Navigate to **Customize** → **Skills**, or open a **Project**
+3. Click the **+** icon, then **"Create Skill"** -> **"Upload files"**
+4. Upload the **zip file**
 
 ---
 
 ### Step 3 — Activate the Skill
 
-After uploading, the skill activates automatically when you ask SAP-related questions. You can also invoke it explicitly:
-
+After uploading, the skill activates automatically when you ask SAP-related questions. SAP skills can be used with keyword related to SAP or via
 ```
-"Using the SAP skill, write a CDS view for..."
-"According to the RAP skill, how do I declare a BDEF?"
+/sap
 ```
 
 ---
