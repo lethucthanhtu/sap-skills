@@ -8,20 +8,35 @@ Last verified: 2025
 
 ## Table of Contents
 
-1. [Primary Official Documentation](#1-primary-official-documentation)
-2. [ABAP & RAP](#2-abap--rap)
-3. [CDS & Data Modeling](#3-cds--data-modeling)
-4. [OData](#4-odata)
-5. [CAP (Cloud Application Programming Model)](#5-cap-cloud-application-programming-model)
-6. [SAP Fiori & SAPUI5](#6-sap-fiori--sapui5)
-7. [SAP BTP & Cloud](#7-sap-btp--cloud)
-8. [HANA & SQLScript](#8-hana--sqlscript)
-9. [SAP Integration Suite & CPI](#9-sap-integration-suite--cpi)
-10. [Lookup Databases — Tables, T-Codes, Fields](#10-lookup-databases--tables-t-codes-fields)
-11. [GitHub — Official SAP Samples](#11-github--official-sap-samples)
-12. [Community & Blogs](#12-community--blogs)
-13. [Release Notes & What's New](#13-release-notes--whats-new)
-14. [Tools & IDEs](#14-tools--ides)
+- [SAP Developer Resources — Complete Reference Database](#sap-developer-resources--complete-reference-database)
+  - [Table of Contents](#table-of-contents)
+  - [1. Primary Official Documentation](#1-primary-official-documentation)
+  - [2. ABAP \& RAP](#2-abap--rap)
+    - [ABAP Language \& Syntax](#abap-language--syntax)
+    - [RAP (RESTful ABAP Programming Model)](#rap-restful-abap-programming-model)
+    - [ABAP Cloud \& Clean Core](#abap-cloud--clean-core)
+    - [BAPI \& Function Modules](#bapi--function-modules)
+  - [3. CDS \& Data Modeling](#3-cds--data-modeling)
+  - [4. OData](#4-odata)
+  - [5. CAP (Cloud Application Programming Model)](#5-cap-cloud-application-programming-model)
+    - [Official CAP Documentation](#official-cap-documentation)
+    - [CAP + SAP OData Integration (Your Workflow)](#cap--sap-odata-integration-your-workflow)
+    - [CAP GitHub Samples](#cap-github-samples)
+  - [6. SAP Fiori \& SAPUI5](#6-sap-fiori--sapui5)
+  - [7. SAP BTP \& Cloud](#7-sap-btp--cloud)
+  - [8. HANA \& SQLScript](#8-hana--sqlscript)
+  - [9. SAP Integration Suite \& CPI](#9-sap-integration-suite--cpi)
+  - [10. Lookup Databases — Tables, T-Codes, Fields](#10-lookup-databases--tables-t-codes-fields)
+    - [Primary Lookup Sites](#primary-lookup-sites)
+    - [Direct URL Patterns for Lookups](#direct-url-patterns-for-lookups)
+    - [Common SAP Tables Quick Reference](#common-sap-tables-quick-reference)
+    - [Common T-Code Quick Reference](#common-t-code-quick-reference)
+  - [11. GitHub — Official SAP Samples](#11-github--official-sap-samples)
+  - [12. Community \& Blogs](#12-community--blogs)
+    - [Official SAP Community](#official-sap-community)
+    - [High-Quality Third-Party Resources](#high-quality-third-party-resources)
+  - [13. Release Notes \& What's New](#13-release-notes--whats-new)
+  - [14. Tools \& IDEs](#14-tools--ides)
 
 ---
 
@@ -46,8 +61,8 @@ Last verified: 2025
 
 | Resource | URL |
 |---|---|
-| ABAP Keyword Documentation (latest) | https://help.sap.com/doc/abapdocu/latest/en-US/index.htm |
-| ABAP Keyword Docs — Cloud Development | https://help.sap.com/doc/abapdocu/latest/en-US/index.htm?file=abenabap_cloud.htm |
+| ABAP Keyword Documentation (latest) | https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/ABENABAP.html |
+| ABAP Keyword Docs — Cloud Development | https://help.sap.com/doc/abapdocu_cp_index_htm/CLOUD/en-US/ABENABAP.html |
 | Clean ABAP Style Guide (GitHub) | https://github.com/SAP/styleguides/blob/main/clean-abap/CleanABAP.md |
 | ABAP Cheat Sheets (executable examples) | https://github.com/SAP-samples/abap-cheat-sheets |
 | Released ABAP Classes reference | https://github.com/SAP-samples/abap-cheat-sheets/blob/main/22_Released_ABAP_Classes.md |
