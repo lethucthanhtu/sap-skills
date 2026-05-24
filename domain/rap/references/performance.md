@@ -33,35 +33,35 @@ CDS pushdown, đến bgPF cho long-running tasks.
 RAP performance vấn đề thường đến từ một trong các layer sau — check theo thứ tự:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  LAYER 1: Behavior Pool — EML bulk vs loop                      │
-│  Nguyên nhân: MODIFY/READ ENTITIES trong LOOP                   │
-│  Impact: ★★★★★ Rất cao                                         │
-├─────────────────────────────────────────────────────────────────┤
-│  LAYER 2: DB Access — SELECT/FAE patterns                       │
-│  Nguyên nhân: SELECT inside loop, SELECT *, cross-buffer read   │
-│  Impact: ★★★★★ Rất cao                                         │
-├─────────────────────────────────────────────────────────────────┤
-│  LAYER 3: CDS Pushdown — logic ở AS ABAP thay vì HANA          │
-│  Nguyên nhân: calculation trong ABAP mà CDS có thể làm         │
-│  Impact: ★★★★☆ Cao                                             │
-├─────────────────────────────────────────────────────────────────┤
-│  LAYER 4: Virtual Elements — mỗi row gọi ABAP method           │
-│  Nguyên nhân: Virtual element dùng cho list với nhiều rows      │
-│  Impact: ★★★★☆ Cao với large list                              │
-├─────────────────────────────────────────────────────────────────┤
-│  LAYER 5: OData Payload — $select thiếu, $top không dùng        │
-│  Nguyên nhân: load all fields, load all rows                    │
-│  Impact: ★★★☆☆ Trung bình                                      │
-├─────────────────────────────────────────────────────────────────┤
-│  LAYER 6: bgPF — blocking tasks chạy sync trong save           │
-│  Nguyên nhân: heavy processing trong save_modified              │
-│  Impact: ★★★☆☆ Trung bình — UX impact cao                     │
-├─────────────────────────────────────────────────────────────────┤
-│  LAYER 7: Side Effects — UI reload toàn bộ thay vì selective    │
-│  Nguyên nhân: side effects không được khai báo                  │
-│  Impact: ★★☆☆☆ Thấp-trung bình                                │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ LAYER 1: Behavior Pool — EML bulk vs loop                    │
+│ Nguyên nhân: MODIFY/READ ENTITIES trong LOOP                 │
+│ Impact: ★★★★★ Rất cao                                      │
+├──────────────────────────────────────────────────────────────┤
+│ LAYER 2: DB Access — SELECT/FAE patterns                     │
+│ Nguyên nhân: SELECT inside loop, SELECT *, cross-buffer read │
+│ Impact: ★★★★★ Rất cao                                      │
+├──────────────────────────────────────────────────────────────┤
+│ LAYER 3: CDS Pushdown — logic ở AS ABAP thay vì HANA         │
+│ Nguyên nhân: calculation trong ABAP mà CDS có thể làm        │
+│ Impact: ★★★★☆ Cao                                          │
+├──────────────────────────────────────────────────────────────┤
+│ LAYER 4: Virtual Elements — mỗi row gọi ABAP method          │
+│ Nguyên nhân: Virtual element dùng cho list với nhiều rows    │
+│ Impact: ★★★★☆ Cao với large list                           │
+├──────────────────────────────────────────────────────────────┤
+│ LAYER 5: OData Payload — $select thiếu, $top không dùng      │
+│ Nguyên nhân: load all fields, load all rows                  │
+│ Impact: ★★★☆☆ Trung bình                                   │
+├──────────────────────────────────────────────────────────────┤
+│ LAYER 6: bgPF — blocking tasks chạy sync trong save          │
+│ Nguyên nhân: heavy processing trong save_modified            │
+│ Impact: ★★★☆☆ Trung bình — UX impact cao                   │
+├──────────────────────────────────────────────────────────────┤
+│ LAYER 7: Side Effects — UI reload toàn bộ thay vì selective  │
+│ Nguyên nhân: side effects không được khai báo                │
+│ Impact: ★★☆☆☆ Thấp-trung bình                              │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ---

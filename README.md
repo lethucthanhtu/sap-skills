@@ -79,7 +79,7 @@ sap-skills/
     │   └── references/
     │       ├── managed.md
     │       ├── unmanaged.md
-    │       ├── bapi-wrapper.m
+    │       ├── bapi-wrapper.md
     │       ├── standard-bo-extension.md
     │       ├── draft-handling.md
     │       ├── actions-validations.md
