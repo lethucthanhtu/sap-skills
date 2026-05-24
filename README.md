@@ -74,7 +74,7 @@ sap-skills/
     │       ├── metadata-extensions.md
     │       └── cds-testing.md
     │
-    ├──rap/
+    ├── rap/
     │   ├── DOMAIN.md
     │   └── references/
     │       ├── managed.md
