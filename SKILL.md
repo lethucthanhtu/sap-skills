@@ -132,14 +132,14 @@ Read the matching domain file before responding. For cross-domain tasks, read al
 
 | If user mentions... | Domain | Read |
 |---|---|---|
-| ABAP, clean code, SELECT, exception, unit test, BAdI, FM, BAPI, class, interface, ALV | **ABAP Core** | `domains/abap-core/DOMAIN.md` |
-| CDS, view entity, DCL, VDM, association, value help, @ObjectModel, @Search, @AccessControl | **CDS** | `domains/cds/DOMAIN.md` |
-| RAP, BDEF, behavior, managed, unmanaged, draft, action, determination, validation, EML, event mesh | **RAP** | `domains/rap/DOMAIN.md` |
-| OData, $metadata, service binding, SEGW, $batch, ETag, $apply, $filter | **OData** | `domains/odata/DOMAIN.md` |
-| CAP, cds.connect, remote service, EDMX, mta.yaml, xs-security, hybrid, mashup | **CAP** | `domains/cap/DOMAIN.md` |
-| Fiori, SAPUI5, Launchpad, FLP, manifest.json, controller, view, fragment, freestyle UI | **Fiori/SAPUI5** | `domains/fiori-sapui5/DOMAIN.md` |
-| HANA, SQLScript, calculation view, AMDP, HDI, column store | **HANA/SQLScript** | `domains/hana-sqlscript/DOMAIN.md` |
-| Integration Suite, CPI, iFlow, adapter, mapping, Groovy, API Management | **Integration Suite** | `domains/integration-suite/DOMAIN.md` |
+| ABAP, clean code, SELECT, exception, unit test, BAdI, FM, BAPI, class, interface, ALV | **ABAP Core** | `domain/abap-core/DOMAIN.md` |
+| CDS, view entity, DCL, VDM, association, value help, @ObjectModel, @Search, @AccessControl | **CDS** | `domain/cds/DOMAIN.md` |
+| RAP, BDEF, behavior, managed, unmanaged, draft, action, determination, validation, EML, event mesh | **RAP** | `domain/rap/DOMAIN.md` |
+| OData, $metadata, service binding, SEGW, $batch, ETag, $apply, $filter | **OData** | `domain/odata/DOMAIN.md` |
+| CAP, cds.connect, remote service, EDMX, mta.yaml, xs-security, hybrid, mashup | **CAP** | `domain/cap/DOMAIN.md` |
+| Fiori, SAPUI5, Launchpad, FLP, manifest.json, controller, view, fragment, freestyle UI | **Fiori/SAPUI5** | `domain/fiori-sapui5/DOMAIN.md` |
+| HANA, SQLScript, calculation view, AMDP, HDI, column store | **HANA/SQLScript** | `domain/hana-sqlscript/DOMAIN.md` |
+| Integration Suite, CPI, iFlow, adapter, mapping, Groovy, API Management | **Integration Suite** | `domain/integration-suite/DOMAIN.md` |
 | T-code, SAP table, field name, DDIC, data element, domain, package | **Lookup** → use `references/resources.md` lookup databases |
 
 **Tie-breaking rules for overlapping keywords:**
@@ -169,7 +169,7 @@ Before generating code, verify against this matrix:
 | OData V2 (SEGW) | ✅ | ✅ | ✅ | ⚠️ legacy | ⚠️ legacy |
 | Table Functions (CDS) | ✅ | ✅ | ✅ | ❌ | ❌ |
 | Released APIs only | ❌ | Recommended | Recommended | ✅ mandatory | ✅ mandatory |
-| AUTHORITY-CHECK | ✅ | ✅ | ✅ | ❌ use IAM | ❌ use IAM |
+| AUTHORITY-CHECK OBJECT | ✅ | ✅ | ✅ | ✅ | ✅ |
 | BAPI / Function Modules | ✅ | ✅ | ✅ | ⚠️ restricted | ⚠️ restricted |
 | CAP remote service (V2) | ✅ via dest | ✅ via dest | ✅ via dest | ✅ via dest | ✅ via dest |
 | CAP remote service (V4) | ❌ | ✅ | ✅ | ✅ | ✅ |
