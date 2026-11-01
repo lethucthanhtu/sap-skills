@@ -140,31 +140,27 @@ having sum( S.net_amount ) > 10000
 ### Analytics Annotations (Cube / Dimension)
 
 ```abap
--- Fact/Cube view
-@Analytics.dataCategory: #FACT
-@Analytics.dataExtraction.enabled: true
-@Analytics.dataExtraction.delta.byElement.name: 'LastChangedAt'
+-- Cube view: no GROUP BY here; the analytic engine aggregates at query time
+@Analytics.dataCategory: #CUBE
 define view entity Z_I_SalesCube
   as select from zsales as S
   association [0..1] to Z_I_Product as _Product
     on $projection.ProductId = _Product.ProductId
 {
-  @Analytics.dimension: true
-  key S.product_id   as ProductId,
+  key S.sales_doc    as SalesDocument,
 
-  @Analytics.dimension: true
-  key S.company_code as CompanyCode,
+  @ObjectModel.foreignKey.association: '_Product'
+  S.product_id       as ProductId,
+  S.company_code     as CompanyCode,
 
-  @Analytics.measure: true
+  @Aggregation.default: #SUM
   @Semantics.amount.currencyCode: 'Currency'
-  sum( S.net_amount ) as TotalAmount,
+  S.net_amount       as TotalAmount,
 
-  @Semantics.currencyCode: true
-  S.currency as Currency,
+  S.currency         as Currency,
 
   _Product
 }
-group by S.product_id, S.company_code, S.currency
 
 -- Dimension view
 @Analytics.dataCategory: #DIMENSION
@@ -282,7 +278,8 @@ define view entity Z_I_OpenItemsView
 ```
 
 ### Restrictions
-- ABAP Cloud: Table functions **not supported** (use ABAP-managed queries instead)
+- ABAP Cloud: supported (AMDP is available in ABAP Cloud); the SQLScript may only
+  use objects permitted in ABAP Cloud (released or own objects)
 - Implementation must use `BY DATABASE FUNCTION FOR HDB LANGUAGE SQLSCRIPT`
 - Cannot use ABAP variables — only SQLScript inside implementation
 - `OPTIONS READ-ONLY` is mandatory for most scenarios
@@ -317,23 +314,25 @@ define hierarchy Z_H_CostCenterHier
 ### Source View for Hierarchy
 
 ```abap
+-- Source: a custom table with an explicit parent column (illustrative; the SAP
+-- standard cost center table CSKS has no parent field — hierarchies live elsewhere)
 define view entity Z_I_CostCenter
-  as select from kst as K
+  as select from zcostcenter as K
   association [0..1] to Z_I_CostCenter as _Parent
     on $projection.ParentCostCenter = _Parent.CostCenter
     and $projection.ControllingArea  = _Parent.ControllingArea
 {
-  key K.kostl       as CostCenter,
-  key K.kokrs       as ControllingArea,
-      K.ktext       as CostCenterName,
-      K.verak       as ParentCostCenter,
+  key K.kostl        as CostCenter,
+  key K.kokrs        as ControllingArea,
+      K.ktext        as CostCenterName,
+      K.parent_kostl as ParentCostCenter,
       K.datab       as ValidFrom,
       K.datbi       as ValidTo,
       _Parent
 }
 ```
 
-### Hierarchy Annotations
+### Hierarchy Annotations (legacy, DDIC-based views / analytics)
 
 ```abap
 @Hierarchy.parentChild: [{
@@ -354,13 +353,16 @@ Used in customer/partner extensions and vertical industry add-ons.
 ### Extend View (Append Fields)
 
 ```abap
--- Extend a standard SAP view with customer fields
-extend view entity I_BusinessPartner with Z_E_BPExtension
+-- Extend a CDS view entity with customer fields. For view entities there is no
+-- extension name after WITH; the DDL source name is the extension name.
+-- The data source alias (here: bupa) must exist in the extended view.
+extend view entity Z_I_BusinessPartner with
 {
-  -- Extension includes fields from an APPEND structure
-  bupa_extension.zcustomer_segment as CustomerSegment,
-  bupa_extension.zrisk_category    as RiskCategory
+  bupa.zzcustomer_segment as ZZCustomerSegment,
+  bupa.zzrisk_category    as ZZRiskCategory
 }
+
+-- Classic DDIC-based views (define view) use: extend view <view> with <name> { ... }
 ```
 
 ### Extension via Include Structure (DDIC)
@@ -370,7 +372,7 @@ extend view entity I_BusinessPartner with Z_E_BPExtension
 
 ### Restrictions
 - Only append fields; cannot change key fields or filter conditions
-- Requires `@AbapCatalog.viewEnhancementCategory: [#PROJECTION_LIST]` on source
+- The extended view must allow it via `@AbapCatalog.viewEnhancementCategory` (e.g. `[#PROJECTION_LIST]`)
 - Not available in ABAP Cloud for SAP standard objects (use released extension points)
 
 ---
@@ -404,17 +406,17 @@ define abstract entity Z_D_TravelPrice_Result
 ```abap
 define behavior for Z_I_Travel alias Travel
 {
-  -- Action with input parameter and result
+  // Action with input parameter and result
   action acceptTravel
     parameter Z_D_AcceptTravel_Params
     result [1] $self;
 
-  -- Static factory action with parameter
+  // Static factory action with parameter
   static factory action createByTemplate
     parameter Z_D_TravelTemplate
     result [1] $self;
 
-  -- Function returning scalar result
+  // Function returning a structured result
   static function calculatePrice
     parameter Z_D_PriceInput
     result [1] Z_D_TravelPrice_Result;
@@ -462,6 +464,13 @@ CLASS zcl_flight_query_provider IMPLEMENTATION.
 
     DATA: lt_flights TYPE TABLE OF z_ce_flightavailability.
 
+    " Only return what was requested — calling set_data / set_total_number_of_records
+    " for something not requested raises an exception
+    IF io_request->is_data_requested( ) = abap_false
+       AND io_request->is_total_numb_of_rec_requested( ) = abap_false.
+      RETURN.
+    ENDIF.
+
     " Read filter conditions from request
     DATA(lo_filter) = io_request->get_filter( ).
     DATA(lt_ranges) = lo_filter->get_as_ranges( ).
@@ -469,13 +478,18 @@ CLASS zcl_flight_query_provider IMPLEMENTATION.
     " Call external source (RFC / HTTP / ABAP)
     " ... your logic here ...
 
-    " Apply $top / $skip
+    " Apply $top / $skip (page size = if_rap_query_paging=>page_size_unlimited
+    " when no $top was sent)
     DATA(lv_top)  = io_request->get_paging( )->get_page_size( ).
     DATA(lv_skip) = io_request->get_paging( )->get_offset( ).
 
     " Return data
-    io_response->set_total_number_of_records( lines( lt_flights ) ).
-    io_response->set_data( lt_flights ).
+    IF io_request->is_total_numb_of_rec_requested( ).
+      io_response->set_total_number_of_records( lines( lt_flights ) ).
+    ENDIF.
+    IF io_request->is_data_requested( ).
+      io_response->set_data( lt_flights ).
+    ENDIF.
 
   ENDMETHOD.
 
@@ -500,14 +514,16 @@ define root view entity Z_C_Travel
       AgencyId,
       OverallStatus,
 
-      -- Virtual element: computed at runtime
-      @ObjectModel.virtualElement: true
-      @ObjectModel.virtualElementCalculatedBy: 'ABAP:ZCL_TRAVEL_VIRTUAL=>calculate'
-      cast( '' as abap_boolean ) as IsOverdue,
+      BeginDate,
+      EndDate,
 
-      @ObjectModel.virtualElement: true
-      @ObjectModel.virtualElementCalculatedBy: 'ABAP:ZCL_TRAVEL_VIRTUAL=>calculate'
-      cast( 0 as int4 ) as DaysUntilDeparture
+      -- Virtual elements in projection views use the VIRTUAL keyword;
+      -- the annotation value is 'ABAP:<class name>' only (no method)
+      @ObjectModel.virtualElementCalculatedBy: 'ABAP:ZCL_TRAVEL_VIRTUAL'
+      virtual IsOverdue : abap_boolean,
+
+      @ObjectModel.virtualElementCalculatedBy: 'ABAP:ZCL_TRAVEL_VIRTUAL'
+      virtual DaysUntilDeparture : abap.int4
 }
 ```
 
@@ -524,27 +540,29 @@ ENDCLASS.
 
 CLASS zcl_travel_virtual IMPLEMENTATION.
 
+  METHOD if_sadl_exit_calc_element_read~get_calculation_info.
+    " Tell SADL which base fields must be read for the calculation
+    et_requested_orig_elements = VALUE #( ( `BEGINDATE` ) ( `ENDDATE` )
+                                          ( `OVERALLSTATUS` ) ).
+  ENDMETHOD.
+
   METHOD if_sadl_exit_calc_element_read~calculate.
+    DATA lt_travel TYPE STANDARD TABLE OF z_c_travel WITH DEFAULT KEY.
+    lt_travel = CORRESPONDING #( it_original_data ).
 
-    DATA(lt_travel) = CAST #( it_original_data ).
+    DATA(lv_today) = cl_abap_context_info=>get_system_date( ).
 
-    LOOP AT lt_travel INTO DATA(ls_travel) ASSIGNING FIELD-SYMBOL(<fs>).
-      DATA(lv_today)   = cl_abap_context_info=>get_system_date( ).
+    LOOP AT lt_travel ASSIGNING FIELD-SYMBOL(<fs>).
+      " Date difference in days: plain subtraction of two date fields
+      <fs>-DaysUntilDeparture = <fs>-BeginDate - lv_today.
 
-      " Calculate DaysUntilDeparture
-      <fs>-DaysUntilDeparture =
-        cl_abap_tstmp=>subtract( tstmp1 = ls_travel-BeginDate
-                                  tstmp2 = lv_today ).
-
-      " Calculate IsOverdue flag
-      <fs>-IsOverdue = COND #( WHEN ls_travel-EndDate < lv_today
-                                 AND ls_travel-OverallStatus <> 'X'
+      <fs>-IsOverdue = COND #( WHEN <fs>-EndDate < lv_today
+                                 AND <fs>-OverallStatus <> 'X'
                                THEN abap_true
                                ELSE abap_false ).
     ENDLOOP.
 
-    ct_calculated_data = lt_travel.
-
+    ct_calculated_data = CORRESPONDING #( lt_travel ).
   ENDMETHOD.
 
 ENDCLASS.
@@ -554,7 +572,10 @@ ENDCLASS.
 - Only in **projection/consumption** views, not interface views
 - Cannot be used in WHERE, ORDER BY, or aggregations
 - Performance: called once per result set, not per row independently
-- ABAP Cloud: supported but class must be released
+- ABAP Cloud: supported; the interface `IF_SADL_EXIT_CALC_ELEMENT_READ` is released,
+  your own calculation class does not need a release contract
+- Only evaluated when read through the OData/SADL stack — a plain ABAP SQL `SELECT`
+  on the projection view does not compute them
 
 ---
 
@@ -567,26 +588,25 @@ This enables the Metadata-Driven UI pattern and supports layered extensions.
 
 ```abap
 @Metadata.layer: #CUSTOMER
+-- Entity-level annotations go BEFORE "annotate entity"
+@UI.headerInfo: {
+  typeName: 'Travel',
+  typeNamePlural: 'Travels',
+  title: {
+    type: #STANDARD,
+    value: 'TravelId'
+  },
+  description: {
+    value: 'Description'
+  },
+  imageUrl: 'PictureUrl'
+}
+@UI.presentationVariant: [{
+  sortOrder: [{ by: 'BeginDate', direction: #DESC }],
+  visualizations: [{ type: #AS_LINEITEM }]
+}]
 annotate entity Z_C_Travel with
 {
-  @UI.headerInfo: {
-    typeName: 'Travel',
-    typeNamePlural: 'Travels',
-    title: {
-      type: #STANDARD,
-      value: 'TravelId'
-    },
-    description: {
-      value: 'Description'
-    },
-    imageUrl: 'PictureUrl'
-  }
-
-  @UI.presentationVariant: [{
-    sortOrder: [{ by: 'BeginDate', direction: #DESC }],
-    visualizations: [{ type: #AS_LINEITEM }]
-  }]
-
   @UI.selectionField: [{ position: 10 }]
   @UI.lineItem: [{ position: 10, importance: #HIGH }]
   @UI.identification: [{ position: 10 }]
@@ -767,12 +787,12 @@ environment = cl_cds_test_environment=>create_for_multiple_cds(
 | Feature | 7.40 | 7.50 | 7.54 | 7.57+ | ABAP Cloud |
 |---|---|---|---|---|---|
 | CDS Parameters | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Table Functions | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Table Functions | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Aggregation Views | ✅ | ✅ | ✅ | ✅ | ✅ |
-| CDS Hierarchy | ❌ | ✅ | ✅ | ✅ | ✅ |
+| CDS Hierarchy (`define hierarchy`, 7.53+) | ❌ | ❌ | ✅ | ✅ | ✅ |
 | View Extensions | ✅ | ✅ | ✅ | ✅ | ⚠️ released only |
 | Abstract Entities | ❌ | ❌ | ✅ | ✅ | ✅ |
 | Custom Entities | ❌ | ❌ | ✅ | ✅ | ✅ |
 | Virtual Elements | ❌ | ✅ | ✅ | ✅ | ✅ |
 | Metadata Extensions | ❌ | ✅ | ✅ | ✅ | ✅ |
-| CDS Test Doubles | ❌ | ❌ | ❌ | ✅ (7.56+) | ✅ |
+| CDS Test Doubles (7.51+) | ❌ | ❌ | ✅ | ✅ | ✅ |
