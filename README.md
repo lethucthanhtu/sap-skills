@@ -1,168 +1,101 @@
-# 🤖 SAP Skills for Claude.ai
+# SAP Skills
 
-> A curated set of reference documents that help Claude.ai handle SAP development tasks with greater accuracy — covering ABAP CDS, RAP, OData, and more.
+An agent skill that makes Claude (and other agents that read `SKILL.md`) give
+**environment-aware** SAP development help: it asks which system you target (ECC,
+S/4HANA on-premise / private cloud, S/4HANA Cloud Public Edition, BTP ABAP
+Environment), checks SAP documentation instead of answering from memory, and flags
+syntax or APIs that don't exist in that environment.
 
----
-
-## 📋 Table of Contents
-
-- [About](#-about)
-- [Folder Structure](#-folder-structure)
-- [Installation & Usage](#-installation--usage)
-- [How to Add Documents to a Skill](#-how-to-add-documents-to-a-skill)
-- [Contributing](#-contributing)
-- [License](#-license)
-
----
-
-## 🧩 About
-
-**SAP Skills** is a collection of technical reference files organized by topic, designed to be integrated into the **Skills** system of [Claude.ai](https://claude.ai). Once loaded, Claude will use these documents to:
-
-- Generate ABAP/CDS/RAP code accurately for the correct environment (ECC, S/4HANA On-Prem, ABAP Cloud)
-- Identify and warn about deprecated APIs or syntax
-- Apply SAP best practices instead of guessing from outdated training data
-
----
-
-## 📁 Folder Structure
+## What's inside
 
 ```
 sap-skills/
-├── sap-abap-cds/         # CDS Views, annotations, associations
-├── sap-abap-rap/         # RAP (RESTful ABAP Programming Model)
-├── sap-odata/            # OData V2/V4, service bindings
-└── README.md
-```
-
-Each skill folder contains:
-- `SKILL.md` — The main entry point that Claude reads first
-- Supporting reference files (`.md`) linked from `SKILL.md`
-
----
-
-## 🚀 Installation & Usage
-
-### Step 1 — Download the Skills
-
-Download the latest release of all skills as a single package:
-
-**[⬇️ Download — cdn.lttt.dev/sap/claude-skills@latest](https://cdn.lttt.dev/sap/claude-skills@latest)**
-
-Extract the archive. You will find all skill folders ready to use.
-
----
-
-### Step 2 — Upload to Claude.ai
-
-1. Go to [claude.ai](https://claude.ai) and sign in
-2. On **side bar** Navigate to **Customize** → **Skills**, or open a **Project**
-3. Click the **+** icon, then **"Create Skill"** -> **"Upload files"**
-4. Upload the **zip file**
-
----
-
-### Step 3 — Activate the Skill
-
-After uploading, the skill activates automatically when you ask SAP-related questions. SAP skills can be used with keyword related to SAP or via
-```
-/sap
-```
-
----
-
-## 📝 How to Add Documents to a Skill
-
-To expand Claude's knowledge on a specific SAP topic, you can add new reference files to an existing skill.
-
-### 1. Create a new reference file
-
-Create a `.md` file inside the relevant skill folder, for example:
-
-```
-sap-abap-cds/
-├── SKILL.md
+├── SKILL.md                 # entry point: rules, routing table, compatibility matrix
 ├── references/
-│   ├── annotations.md          ← existing file
-│   └── access-control.md       ← new file you want to add
+│   ├── abap-core.md         # modern ABAP, ABAP SQL, exceptions, unit tests, BAdIs, ABAP Cloud
+│   ├── cds.md               # parameters, analytics, table functions, hierarchies, DDLX, test doubles
+│   ├── rap.md               # unmanaged, late numbering, auth, augmentation, precheck, events, tests
+│   ├── odata.md             # draft protocol, $apply, $batch, ETags, errors, headers, deep insert
+│   └── resources.md         # official SAP documentation links
+├── .claude-plugin/          # Claude Code plugin + marketplace manifests
+├── CHANGELOG.md
+└── LICENSE
 ```
 
-Follow this structure for the new document:
+The agent reads `SKILL.md` first and opens a reference file only when the question
+touches that domain. BTP, Fiori, CAP and HANA have no reference file yet; for those
+the skill relies on the documentation sources in `references/resources.md`.
 
-```markdown
-# [Topic Name] — Reference
+## Install
 
-## Applicable Version / Environment
-- S/4HANA 2023+
-- ABAP Cloud
+### Claude Code (plugin marketplace)
 
-## Key Concepts
-...
-
-## Code Example
-\`\`\`abap
-...
-\`\`\`
-
-## Notes / Limitations
-...
-
-## Sources
-- https://help.sap.com/...
+```
+/plugin marketplace add lethucthanhtu/sap-skills
+/plugin install sap@sap-skills
 ```
 
----
+### Any agent supported by the `skills` CLI (Claude Code, Codex, Cursor, …)
 
-### 2. Register the file in `SKILL.md`
-
-Open the skill's `SKILL.md` and add a reference to the new file under `## References` or `## Documents`:
-
-```markdown
-## References
-
-- [CDS Annotations](references/annotations.md)
-- [Access Control (DCL)](references/access-control.md)   ← add this line
+```bash
+npx skills add lethucthanhtu/sap-skills
 ```
 
-This step is critical — Claude only reads documents that are explicitly linked from `SKILL.md`.
+### Claude.ai
 
----
+1. Download the skill as a ZIP:
+   **[cdn.lttt.dev/sap/claude-skills@latest](https://cdn.lttt.dev/sap/claude-skills@latest)**
+   (serves the `latest` branch), or GitHub → **Code** → **Download ZIP** for `main`.
+2. In Claude.ai open **Customize → Skills** (or a Project), click **+** →
+   **Create skill** → **Upload files**, and upload the ZIP.
 
-### 3. Add a short description (optional but recommended)
+To update, re-upload the newer ZIP.
 
-In `SKILL.md`, add a short note so Claude knows when to consult the new file:
+## Usage
 
-```markdown
-### When to read `access-control.md`
-Read this file when the question involves DCL, `@MappingRole`, `DEFINE ROLE`,
-or access control in CDS views.
-```
+The skill activates on its own when you mention SAP topics (ABAP, CDS, RAP, OData,
+S/4HANA, BTP, …). You can also call it directly with `/sap` (`/sap:sap` when installed
+as a Claude Code plugin). Examples:
 
----
+- "Write a managed RAP BO with draft for a travel table — target is BTP ABAP Environment."
+- "Is `CALL FUNCTION 'RFC_READ_TABLE'` allowed in S/4HANA Cloud Public Edition? What's the alternative?"
+- "Review this CDS view entity for missing annotations: …"
+- "Why does my OData V4 PATCH return 412?"
 
-### 4. Re-upload the skill
+Answers state the target environment, list anti-patterns, and cite the SAP
+documentation they relied on.
 
-After editing, re-upload the entire skill folder to Claude.ai to apply your changes (see [Step 2](#step-2--upload-to-claudeai)).
+## Scope and limits
 
----
+- Reference content covers ABAP, CDS, RAP and OData. Other areas are answered from
+  live documentation lookups only.
+- Version statements in the references were last reviewed on 2026-11-01. SAP ships
+  changes every release; when a reference disagrees with current SAP documentation,
+  the documentation wins.
+- The skill tells the agent to search the web (help.sap.com, developers.sap.com,
+  SAP Community). It instructs the agent to treat fetched pages as data and not to
+  put proprietary code or credentials into search queries.
+- Not affiliated with or endorsed by SAP SE. SAP, ABAP, S/4HANA and Fiori are
+  trademarks of SAP SE.
 
-## 🤝 Contributing
+## Adding a reference document
 
-Contributions are welcome! You can:
+1. Create `references/<topic>.md` with: applicable versions/environments, key
+   concepts, code examples labelled with their target environment, limitations,
+   and the SAP sources you used.
+2. Add a row for it to the **Domain Routing** table in `SKILL.md` — the agent only
+   opens files that are listed there.
+3. Add an entry to `CHANGELOG.md`.
 
-- Open an **Issue** to report a bug or suggest a new topic
-- Submit a **Pull Request** to add documents or improve existing content
-- Star the repo if you find it useful ⭐
+## Contributing
 
-When submitting a PR, please make sure:
-- Documents are written in standard Markdown
-- Content is sourced and cited from SAP Help Portal or SAP Community
-- `SKILL.md` has been updated with a reference to any new file
+Issues and pull requests are welcome. Please:
 
----
+- cite SAP Help Portal, SAP Developer Center or SAP Community for every technical
+  claim, and say which release/environment it applies to;
+- keep `SKILL.md` short — detail belongs in `references/`;
+- keep commits small, with the `feature:` / `fix:` / `chore:` prefixes used in the history.
 
-## 📄 License
+## License
 
-This project is distributed under the **GPL-3.0** license. See [LICENSE](LICENSE) for details.
-
----
+[GPL-3.0](LICENSE)
