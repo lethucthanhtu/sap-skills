@@ -61,7 +61,11 @@ define behavior for Z_I_Travel alias Travel
 
 ### Behavior Implementation — Unmanaged Save
 
-In unmanaged, YOU control all persistence. Implement `save_modified`:
+In unmanaged, YOU provide the transactional buffer and the persistence. The handler
+methods (`create`, `update`, `delete`, ...) write into your own buffer (for example
+static tables of a local buffer class); the saver method `save` persists that buffer.
+(`save_modified` with the `create`/`update`/`delete` parameters belongs to managed BOs
+with `with additional save` / `with unmanaged save`, not to unmanaged BOs.)
 
 ```abap
 CLASS zbp_i_travel_unmanaged DEFINITION
@@ -72,66 +76,52 @@ ENDCLASS.
 CLASS zbp_i_travel_unmanaged IMPLEMENTATION.
 ENDCLASS.
 
--- Local saver class (in same include)
+" Local saver class (CCIMP include of the behavior pool)
 CLASS lsc_z_i_travel DEFINITION
   INHERITING FROM cl_abap_behavior_saver.
 
   PROTECTED SECTION.
-    METHODS save_modified REDEFINITION.
-    METHODS cleanup_finalize REDEFINITION.
+    METHODS finalize          REDEFINITION.
+    METHODS check_before_save REDEFINITION.
+    METHODS save              REDEFINITION.
+    METHODS cleanup           REDEFINITION.
+    METHODS cleanup_finalize  REDEFINITION.
 
 ENDCLASS.
 
 CLASS lsc_z_i_travel IMPLEMENTATION.
 
-  METHOD save_modified.
-    " Handle CREATEs
-    IF create-travel IS NOT INITIAL.
-      LOOP AT create-travel INTO DATA(ls_create).
-        -- Call BAPI / FM / direct DB insert
-        CALL FUNCTION 'BAPI_TRAVEL_CREATE'
-          EXPORTING
-            travel_data = VALUE bapi_travel( ... )
-          IMPORTING
-            travel_id   = ls_create-TravelId.
-
-        IF sy-subrc <> 0.
-          -- Report failure back to framework
-        ENDIF.
-      ENDLOOP.
-    ENDIF.
-
-    " Handle UPDATEs
-    IF update-travel IS NOT INITIAL.
-      LOOP AT update-travel INTO DATA(ls_update).
-        -- Only update changed fields using %control
-        IF ls_update-%control-OverallStatus = if_abap_behv=>mk-on.
-          CALL FUNCTION 'BAPI_TRAVEL_UPDATE'
-            EXPORTING travel_id = ls_update-TravelId
-                      status    = ls_update-OverallStatus.
-        ENDIF.
-      ENDLOOP.
-    ENDIF.
-
-    " Handle DELETEs
-    IF delete-travel IS NOT INITIAL.
-      LOOP AT delete-travel INTO DATA(ls_delete).
-        CALL FUNCTION 'BAPI_TRAVEL_DELETE'
-          EXPORTING travel_id = ls_delete-TravelId.
-      ENDLOOP.
-    ENDIF.
-
-    " Commit work (if BAPI doesn't auto-commit)
-    CALL FUNCTION 'BAPI_TRANSACTION_COMMIT' EXPORTING wait = 'X'.
+  METHOD finalize.          " early save: last derivations
   ENDMETHOD.
 
-  METHOD cleanup_finalize.
-    " Called on rollback — cleanup transient state
-    CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+  METHOD check_before_save. " early save: last chance to report FAILED
+  ENDMETHOD.
+
+  METHOD save.              " late save: persist your buffer, must not fail
+    LOOP AT lcl_buffer=>travels_to_create INTO DATA(ls_create).
+      " Update-task FM or direct INSERT; no COMMIT inside
+      CALL FUNCTION 'Z_TRAVEL_CREATE' IN UPDATE TASK
+        EXPORTING is_travel = ls_create.
+    ENDLOOP.
+    " ... same for updates (only fields flagged in %control) and deletes
+
+    " Do NOT call COMMIT WORK / ROLLBACK WORK / BAPI_TRANSACTION_COMMIT here:
+    " the RAP runtime owns the transaction, explicit commits cause runtime errors.
+  ENDMETHOD.
+
+  METHOD cleanup.           " after save or on rollback: clear your buffer
+    lcl_buffer=>clear( ).
+  ENDMETHOD.
+
+  METHOD cleanup_finalize.  " called when finalize/check_before_save failed
   ENDMETHOD.
 
 ENDCLASS.
 ```
+
+If a legacy API can only report errors during the late save (typical for BAPIs), use
+`CL_ABAP_BEHAVIOR_SAVER_FAILED` as the saver base class so failures can be returned
+to the consumer instead of dumping.
 
 ### %control — Selective Field Update
 
@@ -179,19 +169,15 @@ define behavior for Z_I_Travel alias Travel
 
 ### Implementation — `adjust_numbers`
 
-`adjust_numbers` is called during the save sequence BEFORE `save_modified`. It must
-populate the final key for all new instances (where key is initial):
+`adjust_numbers` is a saver method called in the late save phase, BEFORE `save` /
+`save_modified`. It must populate the final key for all new instances (where key is
+initial). Because it runs in the late phase, it has no `failed` parameter — number
+assignment must not fail here (see `CL_ABAP_BEHAVIOR_SAVER_FAILED` above if it can).
+Verify the exact `mapped` handling (`%pid` / `%tmp`) for your release in the RAP docs
+("Late Numbering").
 
 ```abap
 METHOD adjust_numbers.
-  " Collect all new instances needing a number
-  DATA: lt_new TYPE TABLE OF z_i_travel.
-
-  READ TABLE mapped-travel
-    INTO DATA(ls_mapped)
-    WITH KEY %is_draft = if_abap_behv=>mk-off
-             TravelId  = ''.
-
   " Get number range batch
   DATA(lv_qty) = REDUCE i( INIT n = 0
                             FOR t IN mapped-travel
@@ -213,22 +199,14 @@ METHOD adjust_numbers.
           returncode  = DATA(lv_rc) ).
 
     CATCH cx_number_ranges INTO DATA(lx).
-      LOOP AT mapped-travel ASSIGNING FIELD-SYMBOL(<mapped>)
-        WHERE TravelId IS INITIAL.
-        APPEND VALUE #( %cid      = <mapped>-%cid
-                        %key      = <mapped>-%key
-                        %is_draft = <mapped>-%is_draft )
-          TO failed-travel.
-        APPEND VALUE #( %cid = <mapped>-%cid
-                        %msg = lx )
-          TO reported-travel.
-      ENDLOOP.
-      RETURN.
+      " Late phase: no way back to the consumer. Make number range errors
+      " impossible upfront (e.g. check the interval in a precheck/validation).
+      RAISE SHORTDUMP lx.
   ENDTRY.
 
   " Assign numbers
   DATA(lv_num) = lv_first_num.
-  LOOP AT mapped-travel ASSIGNING <mapped>
+  LOOP AT mapped-travel ASSIGNING FIELD-SYMBOL(<mapped>)
     WHERE TravelId IS INITIAL.
     <mapped>-TravelId = lv_num.
     lv_num += 1.
@@ -238,30 +216,31 @@ ENDMETHOD.
 
 ### Managed with Additional Save
 
-`managed with additional save` allows custom logic during save (e.g., posting to FI)
-while still using managed persistence for the main table:
+`managed with additional save` allows custom logic during save (e.g., change documents,
+application logs, raising business events) while still using managed persistence for
+the main table. The extra logic goes into the saver method `save_modified`, whose
+`create` / `update` / `delete` parameters hold the instances being saved:
 
 ```abap
--- BDEF
+// BDEF
 managed with additional save
   implementation in class zbp_i_travel unique;
+```
 
--- Implementation: finalize is called after managed save
-METHOD finalize.
-  " Called before save — last chance to derive fields
-  READ ENTITIES OF z_i_travel IN LOCAL MODE
-    ENTITY Travel ALL FIELDS WITH CORRESPONDING #( keys )
-    RESULT DATA(lt_travels).
-
-  MODIFY ENTITIES OF z_i_travel IN LOCAL MODE
-    ENTITY Travel
-    UPDATE FIELDS ( EtagField )
-    WITH VALUE #( FOR t IN lt_travels
-                  ( %tky     = t-%tky
-                    EtagField = cl_abap_tstmp=>utclong2tstmp(
-                                  cl_abap_context_info=>get_system_time_utclong( ) ) ) ).
+```abap
+" Saver class (CCIMP include): late save phase, no COMMIT WORK allowed
+METHOD save_modified.
+  IF update-travel IS NOT INITIAL.
+    LOOP AT update-travel INTO DATA(ls_update)
+      WHERE %control-OverallStatus = if_abap_behv=>mk-on.
+      " e.g. write a change document / application log entry
+    ENDLOOP.
+  ENDIF.
 ENDMETHOD.
 ```
+
+To derive field values before saving, use a `determination ... on save` rather than
+`finalize` code: saver methods have no `keys` parameter.
 
 ---
 
@@ -270,17 +249,17 @@ ENDMETHOD.
 ### Global Authorization (check create permission overall)
 
 ```abap
--- BDEF
+// BDEF
 authorization master ( global )
 
--- Implementation
+" Implementation
 METHOD get_global_authorizations.
   DATA: lv_authorized TYPE abap_bool.
 
   " Check authorization for Create
   IF requested_authorizations-%create = if_abap_behv=>mk-on.
     AUTHORITY-CHECK OBJECT 'Z_TRAVEL'
-      ID 'ACTVT' FIELD '01'.  -- 01 = Create
+      ID 'ACTVT' FIELD '01'.  " 01 = Create
 
     result-%create = COND #( WHEN sy-subrc = 0
                              THEN if_abap_behv=>auth-allowed
@@ -290,7 +269,7 @@ METHOD get_global_authorizations.
   " Check authorization for general Update
   IF requested_authorizations-%update = if_abap_behv=>mk-on.
     AUTHORITY-CHECK OBJECT 'Z_TRAVEL'
-      ID 'ACTVT' FIELD '02'.  -- 02 = Change
+      ID 'ACTVT' FIELD '02'.  " 02 = Change
 
     result-%update = COND #( WHEN sy-subrc = 0
                              THEN if_abap_behv=>auth-allowed
@@ -300,7 +279,7 @@ METHOD get_global_authorizations.
   " Check authorization for Delete
   IF requested_authorizations-%delete = if_abap_behv=>mk-on.
     AUTHORITY-CHECK OBJECT 'Z_TRAVEL'
-      ID 'ACTVT' FIELD '06'.  -- 06 = Delete
+      ID 'ACTVT' FIELD '06'.  " 06 = Delete
 
     result-%delete = COND #( WHEN sy-subrc = 0
                              THEN if_abap_behv=>auth-allowed
@@ -312,10 +291,10 @@ ENDMETHOD.
 ### Instance Authorization (check per record)
 
 ```abap
--- BDEF
+// BDEF
 authorization master ( instance )
 
--- Implementation
+" Implementation
 METHOD get_instance_authorizations.
   READ ENTITIES OF z_i_travel IN LOCAL MODE
     ENTITY Travel
@@ -346,67 +325,65 @@ ENDMETHOD.
 
 ## 4. Augmentation
 
-Augmentation allows enriching a draft instance with data from an external source
-(e.g., copying master data fields into the draft before the user sees it).
-Triggered when a new draft is created.
+Augmentation exists only in **projection** BDEFs. It lets the projection layer add or
+change data in an incoming modify request before it is passed to the base BO — e.g.
+setting defaults for fields the projection does not expose, or mapping
+language-dependent text fields. It runs for every request through that projection
+(not only "when a draft is created").
 
-### BDEF
+### BDEF (projection)
 
 ```abap
-define behavior for Z_I_Travel alias Travel
+projection implementation in class zbp_c_travel unique;
+strict ( 2 );
+
+define behavior for Z_C_Travel alias Travel
 {
-  use create ( augment );    -- triggers augment on create
+  use create ( augment );    // augment_create handler in zbp_c_travel
   use update;
-  ...
 }
 ```
 
-### Implementation
+### Implementation (projection behavior pool)
+
+Augmentation handlers use the special statement `MODIFY AUGMENTING ENTITIES`
+(not `MODIFY ENTITIES ... IN LOCAL MODE`). The instance does not exist yet when
+`augment_create` runs, so there is nothing to `READ`:
 
 ```abap
-METHOD augment_create.
-  " Read the newly created draft keys
-  READ ENTITIES OF z_i_travel IN LOCAL MODE
-    ENTITY Travel
-    FIELDS ( AgencyId )
-    WITH CORRESPONDING #( entities-%target )
-    RESULT DATA(lt_travels).
+CLASS lhc_travel DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+    METHODS augment_create FOR MODIFY
+      IMPORTING entities FOR CREATE Travel.
+ENDCLASS.
 
-  DATA: lt_update TYPE TABLE FOR UPDATE z_i_travel\\travel.
+CLASS lhc_travel IMPLEMENTATION.
+  METHOD augment_create.
+    DATA lt_update TYPE TABLE FOR UPDATE z_i_travel\\Travel.
 
-  LOOP AT lt_travels INTO DATA(ls_travel).
-    " Load default values from master data
-    SELECT SINGLE agency_name, default_currency
-      FROM i_travelagency
-      WHERE agency_id = @ls_travel-AgencyId
-      INTO @DATA(ls_agency).
+    LOOP AT entities INTO DATA(ls_entity) WHERE CurrencyCode IS INITIAL.
+      APPEND VALUE #( %cid_ref              = ls_entity-%cid
+                      CurrencyCode          = 'EUR'
+                      %control-CurrencyCode = if_abap_behv=>mk-on )
+        TO lt_update.
+    ENDLOOP.
 
-    IF sy-subrc = 0.
-      APPEND VALUE #(
-        %tky          = ls_travel-%tky
-        Description   = |Travel via { ls_agency-agency_name }|
-        CurrencyCode  = ls_agency-default_currency
-        %control-Description  = if_abap_behv=>mk-on
-        %control-CurrencyCode = if_abap_behv=>mk-on
-      ) TO lt_update.
-    ENDIF.
-  ENDLOOP.
-
-  MODIFY ENTITIES OF z_i_travel IN LOCAL MODE
-    ENTITY Travel UPDATE FROM lt_update
-    REPORTED DATA(lt_reported).
-
-  reported = CORRESPONDING #( DEEP lt_reported ).
-ENDMETHOD.
+    MODIFY AUGMENTING ENTITIES OF z_i_travel
+      ENTITY Travel UPDATE FROM lt_update.
+  ENDMETHOD.
+ENDCLASS.
 ```
 
 ---
 
 ## 5. Precheck
 
-Precheck validates data BEFORE the save sequence, BEFORE locks are released.
-Useful for: validating against remote systems, checking quota/credit limits,
-or running expensive checks only at save time (not on every field change).
+Precheck runs in the **interaction phase**, before a modify request (create, update,
+delete, create-by-association, action) reaches the transactional buffer. If the
+precheck reports `failed`, the operation is rejected and the buffer stays unchanged.
+Useful for: checking against remote systems, quota/credit limits, or key uniqueness
+before the change is applied. (Checks that should run only at save time belong in
+`validation ... on save`.)
 
 ### BDEF
 
@@ -414,17 +391,20 @@ or running expensive checks only at save time (not on every field change).
 define behavior for Z_I_Travel alias Travel
 {
   ...
-  validation validateDates       on save { create; field BeginDate, EndDate; }
-  validation validateAgency      on save { create; field AgencyId; }
+  update;                                   // update ( precheck ) works the same way
+  action ( precheck ) acceptTravel result [1] $self;
 
-  -- Precheck: runs before all other saves
-  precheck for action acceptTravel;
+  validation validateDates on save { create; field BeginDate, EndDate; }
 }
 ```
 
 ### Implementation
 
 ```abap
+" Handler declaration
+METHODS precheck_accepttravel FOR PRECHECK
+  IMPORTING keys FOR ACTION Travel~acceptTravel.
+
 METHOD precheck_accepttravel.
   " Read current data
   READ ENTITIES OF z_i_travel IN LOCAL MODE
@@ -463,10 +443,10 @@ without a full page reload.
 
 ```abap
 side effects {
-  -- When BookingFee changes, recalculate TotalPrice
+  // When BookingFee changes, recalculate TotalPrice
   field BookingFee affects field TotalPrice;
 
-  -- When CurrencyCode changes, refresh both amount fields
+  // When CurrencyCode changes, refresh both amount fields
   field CurrencyCode affects field BookingFee, field TotalPrice;
 }
 ```
@@ -475,7 +455,7 @@ side effects {
 
 ```abap
 side effects {
-  -- When AgencyId changes, refresh the whole _Agency association
+  // When AgencyId changes, refresh the whole _Agency association
   field AgencyId affects entity _Agency;
 }
 ```
@@ -484,27 +464,32 @@ side effects {
 
 ```abap
 side effects {
-  -- After acceptTravel action, refresh OverallStatus and _Booking child entity
+  // After acceptTravel action, refresh OverallStatus and _Booking child entity
   action acceptTravel affects field OverallStatus, entity _Booking;
 }
 ```
 
-### Determination → Side Effect (indirect)
+### Determinations and side effects
 
-Side effects are also implicitly triggered when a determination runs, since
-determinations modify fields which are tracked by the UI.
+Side effects are **not** triggered implicitly when a determination changes a field.
+Declare them explicitly, e.g. `field X affects field Y;` for the triggering field, or
+`$self affects ...` / `determine action ... executed on field ... affects ...`.
+
+The projection BDEF must expose them with `use side effects;`, otherwise the
+Fiori UI never receives the annotations.
 
 ---
 
 ## 7. Business Events (Event Mesh)
 
 RAP Business Events allow publishing events to SAP Event Mesh (BTP)
-or local event consumers. Available from S/4HANA 2022 / ABAP 7.58+.
+or local event consumers. Available in SAP BTP ABAP Environment from 2208 and in
+S/4HANA on-premise / private cloud from release 2022 (ABAP Platform 2022, 7.57).
 
 ### BDEF — Define Events
 
 ```abap
-managed implementation in class zbp_i_travel unique;
+managed with additional save implementation in class zbp_i_travel unique;
 strict ( 2 );
 with draft;
 
@@ -512,7 +497,7 @@ define behavior for Z_I_Travel alias Travel
   ...
 {
   ...
-  -- Define business events
+  // Define business events
   event created;
   event accepted parameter Z_D_TravelAcceptedParams;
   event TravelStatusChanged parameter Z_D_StatusChangedParams;
@@ -534,6 +519,10 @@ define abstract entity Z_D_StatusChangedParams
 
 ### Raise Event in Behavior Implementation
 
+`RAISE ENTITY EVENT` is only allowed in the **late save phase** — i.e. in the saver
+methods `save` (unmanaged) or `save_modified` (managed `with additional save`), not in
+action or determination handlers. The action only changes data; the saver raises:
+
 ```abap
 METHOD acceptTravel.
   READ ENTITIES OF z_i_travel IN LOCAL MODE
@@ -551,12 +540,6 @@ METHOD acceptTravel.
   MODIFY ENTITIES OF z_i_travel IN LOCAL MODE
     ENTITY Travel UPDATE FIELDS ( OverallStatus ) WITH lt_update.
 
-  " Raise business event
-  RAISE ENTITY EVENT z_i_travel~accepted
-    FROM VALUE #( FOR ls IN lt_travels
-                  ( %key           = ls-%key
-                    %param-TravelId = ls-TravelId ) ).
-
   " Read result
   READ ENTITIES OF z_i_travel IN LOCAL MODE
     ENTITY Travel ALL FIELDS WITH CORRESPONDING #( keys )
@@ -564,47 +547,50 @@ METHOD acceptTravel.
 
   result = VALUE #( FOR t IN lt_result ( %tky = t-%tky  %param = t ) ).
 ENDMETHOD.
+
+" Saver class (CCIMP include)
+METHOD save_modified.
+  RAISE ENTITY EVENT z_i_travel~accepted
+    FROM VALUE #( FOR ls IN update-travel
+                  WHERE ( %control-OverallStatus = if_abap_behv=>mk-on
+                          AND OverallStatus = 'A' )
+                  ( %key            = ls-%key
+                    %param-TravelId = ls-TravelId ) ).
+ENDMETHOD.
 ```
 
-### Event Binding (EVTB) in ADT
+### Event Binding in ADT
 
-1. Create **Event Binding** object in ADT
-2. Reference the BDEF and event name
-3. Configure channel: `LOCAL` (same system) or `SAP_EM` (Event Mesh)
-4. Activate to start publishing
+1. Create an **Event Binding** object in ADT
+2. Enter namespace, business object, business object operation and event version;
+   the binding maps the RAP event to an event type (topic)
+3. Outbound delivery to SAP Event Mesh is configured separately as an event channel
+   (communication arrangement `SAP_COM_0092` in BTP ABAP Environment / S/4HANA Cloud,
+   transaction `/IWXBE/CONFIG` on-premise); local consumers use an event handler class
+   inheriting from `CL_ABAP_BEHAVIOR_EVENT_HANDLER`
 
 ---
 
 ## 8. BDEF strict(1) vs strict(2)
 
-`strict` mode controls compatibility enforcement in RAP BDEFs.
+`strict` mode switches on additional syntax checks for a BDEF (e.g. rejecting
+outdated or ambiguous syntax and enforcing best practices). The checks are done by
+the framework — nothing to implement in the behavior pool. `strict(2)` (introduced
+with ABAP Platform 2022) applies more checks than `strict(1)`; the exact list of
+checks per version is documented under "Strict Mode" in the RAP docs — look it up
+rather than guessing which rule caused an error.
 
-| | `strict(1)` | `strict(2)` |
-|---|---|---|
-| Introduced | 7.54 | 7.56 |
-| Field control check | Partial | Full |
-| Draft admin fields required | Optional | Mandatory |
-| `%control` usage | Advisory | Enforced |
-| ETag field check | Optional | Mandatory (etag master) |
-| Recommended for | Legacy migration | New development |
-
-**Always use `strict(2)` for new development.**
+**Use the latest strict version (currently `strict(2)`) for new development.**
 
 ```abap
--- New development
+// New development
 managed implementation in class zbp_i_travel unique;
 strict ( 2 );
 
--- Migrating old BDEF
+// Older BDEF not yet adapted to strict(2)
 managed implementation in class zbp_i_travel unique;
-strict ( 1 );  -- transition period only
+strict;  // = strict(1)
 ```
-
-### strict(2) mandatory requirements:
-- `etag master <field>` must be declared
-- `lock master total etag <field>` for root entities with draft
-- All draft admin fields must exist in draft table
-- `total etag` field must be `utclong` type
 
 ---
 
@@ -613,20 +599,21 @@ strict ( 1 );  -- transition period only
 ### use create(augment)
 
 ```abap
-projection;
+projection implementation in class zbp_c_travel unique;  // needed for augment
 strict ( 2 );
 use draft;
+use side effects;
 
 define behavior for Z_C_Travel alias Travel
 {
-  use create ( augment );   -- triggers augmentation
+  use create ( augment );   // triggers augmentation
   use update;
   use delete;
 
   use action acceptTravel;
   use action rejectTravel;
 
-  -- Expose with redirect for composition child
+  // Expose with redirect for composition child
   use association _Booking { create; with draft; }
 }
 ```
@@ -637,11 +624,11 @@ define behavior for Z_C_Travel alias Travel
 define behavior for Z_C_Travel alias Travel
 {
   use create;
-  use update ( features : instance );  -- override features at projection
+  use update;   // feature control comes from the base BDEF, not set here
   use delete;
 
-  -- Do NOT expose this action in UI
-  -- (omit: use action internalAction;)
+  // Do NOT expose this action in UI
+  // (omit: use action internalAction;)
 
   use action acceptTravel;
 }
@@ -652,13 +639,22 @@ define behavior for Z_C_Travel alias Travel
 ```abap
 define behavior for Z_C_Travel alias Travel
 {
-  use action acceptTravel as AcceptBooking;  -- different OData name
+  use action acceptTravel as AcceptBooking;  // different OData name
 }
 ```
 
 ---
 
 ## 10. RAP BO Unit Testing with EML
+
+Two different goals, two different tools:
+
+- **Testing the BO's own logic** (handlers, validations, determinations): run real EML
+  against the BO and double the *database tables* with `CL_OSQL_TEST_ENVIRONMENT`
+  (or `CL_CDS_TEST_ENVIRONMENT`), as below.
+- **Testing code that consumes a BO**: double the BO itself with
+  `CL_BOTD_TXBUFDBL_BO_TEST_ENV` (transactional buffer double) or
+  `CL_BOTD_MOCKEMLAPI_BO_TEST_ENV` (mocked EML API).
 
 ### Test class structure
 
@@ -670,7 +666,7 @@ CLASS zcl_test_travel_bo DEFINITION
   DURATION SHORT.
 
   PRIVATE SECTION.
-    CLASS-DATA: environment TYPE REF TO if_abap_behv_testdouble_env.
+    CLASS-DATA: environment TYPE REF TO if_osql_test_environment.
 
     CLASS-METHODS:
       class_setup,
@@ -678,6 +674,7 @@ CLASS zcl_test_travel_bo DEFINITION
 
     METHODS:
       setup,
+      teardown,
       test_create_travel        FOR TESTING,
       test_accept_travel_action FOR TESTING,
       test_validate_dates       FOR TESTING.
@@ -687,9 +684,9 @@ ENDCLASS.
 CLASS zcl_test_travel_bo IMPLEMENTATION.
 
   METHOD class_setup.
-    " Create RAP BO test environment (replaces DB access)
-    environment = cl_abap_behv_test_environment=>create(
-                    i_root_name = 'Z_I_TRAVEL' ).
+    " Redirect ABAP SQL access to the persistent table to a test double
+    environment = cl_osql_test_environment=>create(
+                    i_dependency_list = VALUE #( ( 'ZTRAVEL' ) ) ).
   ENDMETHOD.
 
   METHOD class_teardown.
@@ -698,6 +695,10 @@ CLASS zcl_test_travel_bo IMPLEMENTATION.
 
   METHOD setup.
     environment->clear_doubles( ).
+  ENDMETHOD.
+
+  METHOD teardown.
+    ROLLBACK ENTITIES.   " discard the transactional buffer between tests
   ENDMETHOD.
 
   METHOD test_create_travel.
@@ -800,22 +801,16 @@ ENDCLASS.
 
 ## 11. RAP Generator (ADT Wizard)
 
-The RAP Generator in ADT automates creation of the full BO stack.
+The RAP Generator in ADT automates creation of the full BO stack. Availability and
+options depend on the release (BTP ABAP Environment and recent S/4HANA releases);
+check the ADT docs for your system.
 
 ### How to Access
-`File → New → Other → ABAP → Business Object (RAP Generator)`
-
-### Generator Options
-
-| Option | Description |
-|---|---|
-| **Scenario** | Managed / Unmanaged / Managed with Additional Save |
-| **Draft** | Enable/disable draft handling |
-| **Numbering** | Early / Late / External |
-| **Package** | Target development package |
-| **Namespace** | Z_ or Y_ prefix |
-| **DB Table** | Source DDIC transparent table |
-| **Transport** | Target Workbench transport |
+In the Project Explorer, right-click a database table →
+**Generate ABAP Repository Objects…** → **OData UI Service** (wording may vary by
+ADT version). The wizard asks for package, name prefix/suffix, transport, and the
+names of the generated objects. It generates a *managed*, draft-enabled BO; adjust
+numbering, unmanaged parts, etc. afterwards by hand.
 
 ### What Gets Generated
 
@@ -838,31 +833,17 @@ The RAP Generator in ADT automates creation of the full BO stack.
 
 ## 12. Draft Garbage Collection
 
-Draft records that are never activated accumulate over time.
-Configure garbage collection to auto-clean stale drafts.
-
-### Configure via SM30/SM34 — Table `DRAFTADMINDATA`
-
-Or programmatically:
-
-```abap
-" Schedule periodic cleanup via SAP job
-" Standard report: RSCL_DRAFT_CLEANUP
-
-" Or call directly in ABAP
-DATA(lo_draft_handler) = cl_abap_tx_helper=>get_instance( ).
-
-cl_rap_draft_gc=>cleanup(
-  EXPORTING
-    iv_root_entity_name = 'Z_I_TRAVEL'
-    iv_max_age_seconds  = 86400  -- 24 hours
-  IMPORTING
-    ev_deleted_count    = DATA(lv_deleted) ).
-```
+Draft records that are never activated accumulate over time. The RAP framework has a
+built-in draft lifecycle (expiry and deletion of stale drafts); you do not write your
+own cleanup code. Lifetimes and the related configuration are release-dependent —
+look up "Draft Lifecycle" / "Draft Lifetime" in the RAP docs for the target system
+instead of guessing transaction codes or classes.
 
 ### Draft Admin Fields — Reference
 
-These fields MUST exist in both the active table AND draft table:
+Typical administrative fields on the active table (annotated with
+`@Semantics.user.createdBy`, `@Semantics.systemDateTime.lastChangedAt`, etc. in the CDS
+view so managed RAP fills them automatically):
 
 | Field | Type | Purpose |
 |---|---|---|
@@ -872,23 +853,28 @@ These fields MUST exist in both the active table AND draft table:
 | `created_at` | `utclong` | Audit |
 | `last_changed_by` | `syuname` | Audit |
 
-Draft table additionally needs all `DRAFTADMIN*` fields — use ADT "New Draft Table"
-wizard which generates the correct structure automatically.
+The draft table mirrors these fields and additionally includes the draft admin
+structure (`"%admin" : include sych_bdl_draft_admin_inc;`). Let ADT generate it via the
+quick fix on the `draft table` statement in the BDEF.
 
 ---
 
 ## Version Compatibility Summary
 
+Release mapping: 7.54 = S/4HANA 1909, 7.55 = 2020, 7.56 = 2021, 7.57 = 2022,
+7.58 = 2023. ⚠️ = not verified per release here — check the "What's New" for the
+target release before relying on it.
+
 | Feature | 7.54 | 7.56 | 7.57 | 7.58+ | ABAP Cloud |
 |---|---|---|---|---|---|
 | Managed RAP | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Unmanaged RAP | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Draft | ✅ | ✅ | ✅ | ✅ | ✅ |
-| strict(2) | ❌ | ✅ | ✅ | ✅ | ✅ |
-| Late Numbering | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Augmentation | ❌ | ✅ | ✅ | ✅ | ✅ |
-| Precheck | ❌ | ✅ | ✅ | ✅ | ✅ |
-| Business Events | ❌ | ❌ | ❌ | ✅ (7.58) | ✅ |
+| Draft | ❌ (from 7.55) | ✅ | ✅ | ✅ | ✅ |
+| strict(2) | ❌ | ❌ | ✅ | ✅ | ✅ |
+| Late Numbering | ⚠️ | ✅ | ✅ | ✅ | ✅ |
+| Augmentation | ⚠️ | ✅ | ✅ | ✅ | ✅ |
+| Precheck | ⚠️ | ✅ | ✅ | ✅ | ✅ |
+| Business Events | ❌ | ❌ | ✅ | ✅ | ✅ |
 | Instance Auth | ✅ | ✅ | ✅ | ✅ | ✅ |
-| EML Test Doubles | ❌ | ✅ | ✅ | ✅ | ✅ |
-| RAP Generator | ✅ | ✅ | ✅ | ✅ | ✅ |
+| BO test doubles (`CL_BOTD_*`) | ❌ | ⚠️ | ⚠️ | ✅ | ✅ |
+| RAP Generator | ❌ | ❌ | ⚠️ | ✅ | ✅ |
