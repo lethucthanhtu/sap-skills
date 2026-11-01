@@ -1,0 +1,15 @@
+{
+  "name": "sap-skills",
+  "owner": {
+    "name": "Le Thuc Thanh Tu",
+    "url": "https://github.com/lethucthanhtu"
+  },
+  "plugins": [
+    {
+      "name": "sap",
+      "source": "./",
+      "description": "Environment-aware SAP development skill (ABAP, CDS, RAP, OData)",
+      "version": "0.1.0"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "sap",
+  "version": "0.1.0",
+  "description": "Environment-aware SAP development skill: ABAP, CDS, RAP and OData references with ECC / S/4HANA / ABAP Cloud compatibility checks.",
+  "author": {
+    "name": "Le Thuc Thanh Tu",
+    "url": "https://github.com/lethucthanhtu"
+  },
+  "repository": "https://github.com/lethucthanhtu/sap-skills",
+  "license": "GPL-3.0",
+  "keywords": ["sap", "abap", "cds", "rap", "odata", "s4hana", "btp"]
+}
