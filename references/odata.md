@@ -29,16 +29,17 @@ Understanding the draft protocol is essential for consuming Fiori/RAP-based serv
 
 ### Draft System Fields
 
-Every draft-enabled entity exposes these virtual fields:
+Every draft-enabled entity exposes these properties:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `IsActiveEntity` | Boolean | `true` = active record, `false` = draft |
+| `IsActiveEntity` | Boolean | `true` = active record, `false` = draft (part of the key) |
 | `HasActiveEntity` | Boolean | `true` = active version exists for this draft |
 | `HasDraftEntity` | Boolean | `true` = a draft exists for this active record |
-| `DraftEntityCreationDateTime` | DateTimeOffset | When draft was created |
-| `DraftEntityLastChangedDateTime` | DateTimeOffset | When draft was last saved |
-| `InProcessByUser` | String | User who has the draft locked |
+| `DraftAdministrativeData` | Navigation | Draft admin entity (see below) |
+
+Draft metadata such as `CreationDateTime`, `LastChangeDateTime`, `InProcessByUser`
+lives on the `DraftAdministrativeData` navigation target, not on the entity itself.
 
 ### Reading Active Records Only
 
@@ -49,7 +50,7 @@ GET /Travel?$filter=IsActiveEntity eq true
 ### Reading All Drafts for Current User
 
 ```http
-GET /Travel?$filter=IsActiveEntity eq false and InProcessByUser eq 'MYUSER'
+GET /Travel?$filter=IsActiveEntity eq false&$expand=DraftAdministrativeData
 ```
 
 ### Reading Sibling (Draft ↔ Active)
@@ -64,21 +65,27 @@ GET /Travel(TravelId='00000001',IsActiveEntity=false)/SiblingEntity
 
 ### Standard Draft Actions
 
-All draft-enabled entities expose these OData actions automatically:
+RAP draft BOs expose the draft actions `Edit`, `Activate`, `Prepare`, `Resume`
+(and `Discard`) as **bound actions**, qualified with the service namespace
+(`com.sap.gateway.srvd.<service_definition>.v0001` — check `$metadata`). The
+names `draftEdit` / `draftActivate` are the CAP conventions, not RAP's.
 
 ```http
 -- Create new draft (equivalent to clicking "Create" in Fiori)
 POST /Travel
 Content-Type: application/json
-{ "AgencyId": "000001", "IsActiveEntity": false }
+{ "AgencyId": "000001" }
 
 -- Edit existing record (creates draft from active)
-POST /Travel(TravelId='00000001',IsActiveEntity=true)/draftEdit
+POST /Travel(TravelId='00000001',IsActiveEntity=true)/com.sap.gateway.srvd.z_sd_travel.v0001.Edit
 Content-Type: application/json
-{ "PreserveChanges": false }
+{ "PreserveChanges": true }
+
+-- Run draft validations/determinations (Fiori sends this before Activate)
+POST /Travel(TravelId='00000001',IsActiveEntity=false)/com.sap.gateway.srvd.z_sd_travel.v0001.Prepare
 
 -- Activate draft (Save button)
-POST /Travel(TravelId='00000001',IsActiveEntity=false)/draftActivate
+POST /Travel(TravelId='00000001',IsActiveEntity=false)/com.sap.gateway.srvd.z_sd_travel.v0001.Activate
 
 -- Discard draft (Cancel button)
 DELETE /Travel(TravelId='00000001',IsActiveEntity=false)
@@ -89,7 +96,7 @@ DELETE /Travel(TravelId='00000001',IsActiveEntity=false)
 ```
 1. POST  /Travel                             → creates new draft, returns IsActiveEntity=false
 2. PATCH /Travel(id,IsActiveEntity=false)    → update fields during edit
-3. POST  /Travel(id,IsActiveEntity=false)/draftActivate  → save to DB
+3. POST  .../Prepare then .../Activate       → validate, then save to DB (one $batch)
 ```
 
 ### $expand Draft + Active Together
@@ -161,7 +168,11 @@ $apply=...&$count=true&$select=...
 
 `$batch` sends multiple OData requests in a single HTTP call, reducing round trips.
 
-### OData V4 Batch (JSON format — preferred)
+### OData V4 Batch (JSON format)
+
+JSON batch is defined in OData 4.01. SAP UI5 and many SAP Gateway V4 services use
+the multipart format; check that the target service accepts JSON batch before
+relying on it.
 
 ```http
 POST /sap/opu/odata4/sap/z_sb_travel_o4/srvd/sap/z_sd_travel/0001/$batch
@@ -234,14 +245,16 @@ Requests inside a `changeset` are transactional — all succeed or all fail:
       "id": "req2",
       "atomicityGroup": "changeset1",
       "method": "POST",
-      "url": "Booking",
-      "body": { "TravelId": "$req1/TravelId", "FlightId": "LH0001" }
+      "url": "$req1/_Booking",
+      "body": { "FlightId": "LH0001" }
     }
   ]
 }
 ```
 
-`$req1/TravelId` — ID reference allows using response from req1 as input to req2.
+`$req1/_Booking` — a request id used at the start of a URL refers to the entity
+created by that earlier request in the same batch (here: create a booking below
+the new travel). Request ids can't be used as placeholders inside body values.
 
 ### Batch Response
 
@@ -255,7 +268,7 @@ Requests inside a `changeset` are transactional — all succeed or all fail:
     },
     {
       "id": "req2",
-      "status": 200,
+      "status": 201,
       "body": { "TravelId": "00000001", ... }
     }
   ]
@@ -318,8 +331,8 @@ Use `If-Match: *` only when you intentionally want to overwrite regardless of co
 ```abap
 define behavior for Z_I_Travel alias Travel
   ...
-  etag master LocalLastChangedAt       -- field-level ETag (utclong)
-  lock master total etag LastChangedAt -- pessimistic lock ETag
+  etag master LocalLastChangedAt       // instance ETag (optimistic concurrency)
+  lock master total etag LastChangedAt // draft: detects active-data changes on resume/activate
 {
   ...
 }
@@ -333,7 +346,7 @@ define behavior for Z_I_Travel alias Travel
 
 ```http
 -- Syntax: Entity(key)/ActionName
-POST /Travel(TravelId='00000001',IsActiveEntity=false)/com.sap.namespace.acceptTravel
+POST /Travel(TravelId='00000001',IsActiveEntity=false)/com.sap.gateway.srvd.z_sd_travel.v0001.acceptTravel
 Content-Type: application/json
 
 {
@@ -344,17 +357,21 @@ Content-Type: application/json
 In OData V4 metadata:
 ```xml
 <Action Name="acceptTravel" IsBound="true">
-  <Parameter Name="in" Type="com.sap.namespace.TravelType" Nullable="false"/>
+  <Parameter Name="_it" Type="com.sap.gateway.srvd.z_sd_travel.v0001.TravelType" Nullable="false"/>
   <Parameter Name="Reason" Type="Edm.String"/>
-  <ReturnType Type="com.sap.namespace.TravelType" Nullable="false"/>
+  <ReturnType Type="com.sap.gateway.srvd.z_sd_travel.v0001.TravelType" Nullable="false"/>
 </Action>
 ```
 
 ### Unbound Action (no entity key needed)
 
+Unbound actions are called through their **action import** name at the service root
+(no namespace). RAP does not generate unbound actions — RAP *static* actions are
+bound to the entity collection instead (see table below).
+
 ```http
--- Syntax: /ActionName directly
-POST /com.sap.namespace.CalculateGlobalDiscount
+-- Syntax: /<ActionImport> directly
+POST /CalculateGlobalDiscount
 Content-Type: application/json
 
 {
@@ -465,7 +482,7 @@ Functions use GET, actions use POST. Functions must not change data.
 | `404 Not Found` | Entity not found |
 | `409 Conflict` | Lock conflict / duplicate key |
 | `412 Precondition Failed` | ETag mismatch |
-| `422 Unprocessable Entity` | Business validation failure (RAP) |
+| `422 Unprocessable Entity` | Rare in SAP; RAP validation failures usually come back as `400` (verify per service) |
 | `500 Internal Server Error` | Unhandled ABAP exception |
 
 ---
@@ -476,7 +493,7 @@ Functions use GET, actions use POST. Functions must not change data.
 
 | Header | Values | Purpose |
 |---|---|---|
-| `X-CSRF-Token` | `Fetch` / `<token>` | CSRF protection (required for modifying calls in V2) |
+| `X-CSRF-Token` | `Fetch` / `<token>` | CSRF protection (required for modifying calls in V2 **and** V4 on SAP Gateway) |
 | `sap-client` | `100` / `200` etc. | Override SAP client (if allowed) |
 | `sap-language` | `EN` / `DE` / `ZH` | Response language for text fields |
 | `Accept-Language` | `en-US` | Standard locale (also accepted) |
@@ -530,9 +547,14 @@ Delta links allow polling for changes since the last read (CDC pattern).
 
 ### OData V4 Delta Query
 
+Change tracking is requested with a `Prefer` header; the token in the returned
+`@odata.deltaLink` is opaque. Whether a given SAP service supports delta at all
+depends on the service implementation — check before designing around it.
+
 ```http
 -- Initial full read, request delta link
-GET /Travel?$deltatoken=initial
+GET /Travel
+Prefer: odata.track-changes
 → Response includes @odata.deltaLink
 {
   "value": [...],
@@ -555,12 +577,13 @@ GET /Travel?$deltatoken=eyJlIjoiMjAyNDEyMDFUMTAzMDAwWiJ9
 }
 ```
 
-### SAP Analytics Cloud Data Extraction
+### CDS Data Extraction (BW / Datasphere)
 
-SAP Analytics Cloud uses delta extraction from CDS views:
+Delta extraction from CDS views (e.g. for SAP BW/4HANA or SAP Datasphere) is enabled
+by annotations — this is separate from OData delta links:
 
 ```abap
--- Enable delta on CDS view
+// Enable delta on CDS view
 @Analytics.dataExtraction.enabled: true
 @Analytics.dataExtraction.delta.byElement.name: 'LastChangedAt'
 @Analytics.dataExtraction.delta.byElement.maxDelayInSeconds: 3600
@@ -612,7 +635,7 @@ Content-Type: application/json
   "AgencyId": "000001",
   "ToBookings": {
     "results": [
-      { "FlightId": "LH0001", "FlightDate": "20241201" }
+      { "FlightId": "LH0001", "FlightDate": "2024-12-01T00:00:00" }
     ]
   }
 }
@@ -624,7 +647,7 @@ Content-Type: application/json
 define behavior for Z_I_Travel alias Travel
 {
   create;
-  association _Booking { create; }  -- must expose create on association
+  association _Booking { create; }  // must expose create on association
 }
 ```
 
@@ -657,7 +680,7 @@ but uses the navigation path — which enforces the parent-child relationship.
 POST /TravelSet('00000001')/ToBookings
 Content-Type: application/json
 
-{ "FlightId": "LH0001", "FlightDate": "20241201", "FlightPrice": "500.00" }
+{ "FlightId": "LH0001", "FlightDate": "2024-12-01T00:00:00", "FlightPrice": "500.00" }
 ```
 
 ### Read Children via Navigation
@@ -686,5 +709,5 @@ GET /Travel(TravelId='00000001',IsActiveEntity=true)?$expand=_Booking($select=Bo
 | Deep insert syntax | `results: [...]` | Direct array on nav property |
 | Draft protocol | ❌ | ✅ native |
 | `Prefer: return=representation` | ❌ | ✅ |
-| ETag | ❌ (SAP ext.) | ✅ native |
-| CSRF token | Required | Optional (session-based) |
+| ETag / `If-Match` | ✅ | ✅ |
+| CSRF token (SAP Gateway) | Required for modifying requests | Required for modifying requests |
