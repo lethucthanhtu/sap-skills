@@ -121,15 +121,21 @@ DATA(lv_count) = REDUCE i(
 ### FILTER # — Inline Table Filter
 
 ```abap
-" Filter table inline (requires sorted/hashed table or FREE addition)
-DATA(lt_open) = FILTER #(
-  lt_travels USING KEY primary_key
-  WHERE overall_status = 'O' ).
+" FILTER needs a sorted or hashed key covering the WHERE fields:
+" the primary key of a sorted/hashed table, or a secondary key via USING KEY.
+DATA lt_travels TYPE SORTED TABLE OF ztravel
+  WITH NON-UNIQUE KEY overall_status.
 
-" Without key (scans all — use for standard tables)
 DATA(lt_open) = FILTER #(
   lt_travels
   WHERE overall_status = 'O' ).
+
+" Standard table: only with a sorted/hashed secondary key
+DATA(lt_open2) = FILTER #(
+  lt_std_travels USING KEY by_status
+  WHERE overall_status = 'O' ).
+" A standard table without such a key is a syntax error — use
+" VALUE #( FOR ... WHERE ( ... ) ( ... ) ) or LOOP ... WHERE instead.
 ```
 
 ### String Templates
@@ -144,10 +150,12 @@ DATA(lv_price) = |Amount: { lv_amount NUMBER = ENVIRONMENT } { lv_currency }|.
 DATA(lv_padded) = |{ lv_id WIDTH = 10 ALIGN = RIGHT PAD = '0' }|.
 ```
 
-### Mesh — Cross-Join Internal Tables
+### Nested FOR — Join Internal Tables in Memory
+
+(Not to be confused with ABAP *meshes*, a separate feature.)
 
 ```abap
-" Mesh joins two tables without DB roundtrip
+" Join two internal tables without a DB roundtrip
 DATA(lt_result) = VALUE output_t(
   FOR ls_header IN lt_headers
   FOR ls_item   IN lt_items
@@ -161,7 +169,7 @@ DATA(lt_result) = VALUE output_t(
 
 ## 2. ABAP SQL — Modern Patterns
 
-### Common Table Expressions (CTE) — 7.54+
+### Common Table Expressions (CTE) — 7.51+
 
 ```abap
 WITH
@@ -229,7 +237,7 @@ DATA(lv_date)  = sy-datum.
 SELECT *
   FROM ztravel
   WHERE begin_date >= @lv_date
-    AND booking_fee <= @( lv_limit * 2 )  -- inline expression
+    AND booking_fee <= @( lv_limit * 2 )  " inline host expression
   ORDER BY begin_date
   INTO TABLE @DATA(lt_result).
 ```
@@ -280,6 +288,8 @@ CLASS zcx_travel_error DEFINITION
   INHERITING FROM cx_static_check.
 
   PUBLIC SECTION.
+    INTERFACES if_t100_message.
+
     CONSTANTS:
       BEGIN OF travel_not_found,
         msgid TYPE symsgid VALUE 'Z_TRAVEL',
@@ -302,11 +312,12 @@ ENDCLASS.
 
 CLASS zcx_travel_error IMPLEMENTATION.
   METHOD constructor.
-    CALL METHOD super->constructor(
-      EXPORTING textid   = COND #( WHEN textid IS INITIAL THEN travel_not_found
-                                   ELSE textid )
-                previous = previous ).
+    super->constructor( previous = previous ).
     me->travel_id = travel_id.
+    " CX_ROOT's own TEXTID is an OTR key; T100 texts go into IF_T100_MESSAGE
+    CLEAR me->textid.
+    if_t100_message~t100key = COND #( WHEN textid IS INITIAL THEN travel_not_found
+                                      ELSE textid ).
   ENDMETHOD.
 ENDCLASS.
 ```
@@ -417,7 +428,9 @@ CLASS zcl_test_travel_service IMPLEMENTATION.
 ENDCLASS.
 ```
 
-### Test Doubles (ABAP Test Seams)
+### Test Doubles (ABAP Test Double Framework)
+
+(Test *seams* — `TEST-SEAM` / `TEST-INJECTION` — are a different, legacy technique.)
 
 ```abap
 " For interfaces: use cl_abap_testdouble
@@ -428,7 +441,8 @@ DATA(lo_mock) = CAST zif_travel_repository(
 cl_abap_testdouble=>configure_call( lo_mock )->returning(
   VALUE ztravel_t( ( travel_id = '00000001' ) ) ).
 
-lo_mock->get_all( ).  " will return the configured data
+lo_mock->get_all( ).  " this call REGISTERS the configuration above;
+                      " later calls from the code under test return the data
 ```
 
 ### Assert Methods Reference
@@ -672,19 +686,20 @@ ENDMETHOD.
 " Step 1: Find BAdI in SPRO or SE18
 " Step 2: Create Enhancement Implementation via SE19 or in ABAP package
 
-" Step 3: Implement the BAdI interface
+" Step 3: Implement the BAdI interface (new BAdI: interface ZIF_BADI_...)
 CLASS zcl_badi_travel_check DEFINITION
   PUBLIC FINAL
   CREATE PUBLIC.
 
   PUBLIC SECTION.
-    INTERFACES if_ex_travel_check.  " BAdI interface
+    INTERFACES if_badi_interface.
+    INTERFACES zif_badi_travel_check.  " BAdI interface
 
 ENDCLASS.
 
 CLASS zcl_badi_travel_check IMPLEMENTATION.
 
-  METHOD if_ex_travel_check~check_travel.
+  METHOD zif_badi_travel_check~check_travel.
     " Custom validation logic
     IF is_travel-booking_fee > 9999.
       ev_error_message = 'Booking fee exceeds maximum allowed'.
@@ -699,7 +714,8 @@ ENDCLASS.
 
 ```abap
 METHOD check_travel_badi.
-  DATA: lo_badi TYPE REF TO if_ex_travel_check.
+  " Typed with the BAdI DEFINITION name (not the interface)
+  DATA: lo_badi TYPE REF TO zbadi_travel_check.
 
   " Get BAdI instance
   TRY.
@@ -728,8 +744,8 @@ ENDMETHOD.
 
 | Type | Purpose |
 |---|---|
-| Classic BAdI (`GET BADI / CALL BADI`) | Object-oriented exit, multi-use |
-| Kernel BAdI | Called from kernel / standard code |
+| New (kernel-based) BAdI (`GET BADI / CALL BADI`) | Object-oriented exit in an enhancement spot; current standard |
+| Classic BAdI (`CL_EXITHANDLER`) | Legacy object-oriented exit |
 | Customer Function (`CALL CUSTOMER-FUNCTION`) | Legacy user exits |
 | Source Code Plug-in | Inject code at enhancement spot |
 | Pre/Post Enhancement | Before/after method execution |
@@ -800,27 +816,37 @@ This feeds into role maintenance (PFCG) to auto-propose relevant auth objects.
 
 ## 10. ABAP Cloud Restrictions
 
-ABAP Cloud (BTP Steampunk / S/4HANA Cloud public edition) restricts usage to
-released APIs only (Tier-1). Understanding the tiers:
+ABAP Cloud (BTP ABAP Environment / S/4HANA Cloud Public Edition, and the ABAP Cloud
+language version on S/4HANA private cloud / on-premise) restricts usage to released
+APIs only. The classic 3-tier extensibility model:
 
 | Tier | Description | Examples |
 |---|---|---|
-| Tier 1 (Released) | SAP-released, stable API | `CL_ABAP_CONTEXT_INFO`, `IF_OO_ADT_CLASSRUN` |
-| Tier 2 (Partner) | Licensed partner use | Selected platform objects |
-| Tier 3 (Custom) | Customer-created | Your own Z/Y objects |
+| Tier 1 | ABAP Cloud: released APIs only, cloud-ready | `CL_ABAP_CONTEXT_INFO`, `IF_OO_ADT_CLASSRUN` |
+| Tier 2 | Cloud API enablement: customer *wrappers* around unreleased SAP objects, released for use in Tier 1 | Wrapper class around an unreleased BAPI |
+| Tier 3 | Classic ABAP extensions (not cloud-ready) | Classic user exits, direct table access |
+
+Note (as of Aug 2025): SAP superseded the 3-tier model with the *clean core level
+concept* (levels A–D) in its ABAP Extensibility Guide. Level A ≈ ABAP Cloud + released
+APIs; B = classic ABAP using stable classic APIs; C = classic ABAP touching internal
+objects; D = not clean (modifications, writes to SAP tables). Ask which model the
+user's organisation uses.
 
 ### Restricted in ABAP Cloud
 
+`AUTHORITY-CHECK OBJECT` **is** allowed in ABAP Cloud (literal object name, for your
+own or released authorization objects); users get the authorizations via IAM apps,
+business catalogs and business roles instead of PFCG.
+
 ```abap
 " NOT allowed in ABAP Cloud:
-CALL FUNCTION 'RFC_READ_TABLE'.      -- use CDS view instead
-WRITE: lv_text.                      -- no classic ABAP reports
-SUBMIT report.                       -- no report submission
-CALL TRANSACTION 'VA01'.             -- no transaction calls
-AUTHORITY-CHECK OBJECT '...'.        -- use IAM instead
-OPEN DATASET '...' FOR INPUT.        -- no direct file access
-CALL FUNCTION 'ENQUEUE_...' .        -- use lock via RAP instead
-SELECT * FROM dd02l.                 -- no DDIC tables (use released CDS)
+CALL FUNCTION 'RFC_READ_TABLE'.      " use CDS view instead
+WRITE: lv_text.                      " no classic ABAP reports
+SUBMIT report.                       " no report submission
+CALL TRANSACTION 'VA01'.             " no transaction calls
+OPEN DATASET '...' FOR INPUT.        " no direct file access
+CALL FUNCTION 'ENQUEUE_...' .        " use lock via RAP instead
+SELECT * FROM dd02l.                 " no DDIC tables (use released CDS)
 ```
 
 ### ABAP Cloud Alternatives
@@ -828,11 +854,9 @@ SELECT * FROM dd02l.                 -- no DDIC tables (use released CDS)
 | Restricted | Cloud Alternative |
 |---|---|
 | `WRITE` / report output | `IF_OO_ADT_CLASSRUN~MAIN` for console |
-| `AUTHORITY-CHECK` | RAP authorization / IAM (Identity & Access Management) |
 | Direct DB table access | Released CDS views (`I_*`) |
 | `CALL FUNCTION` (RFC) | Released classes / BAPIs with `USE IN CLOUD DEVELOPMENT` |
 | File access | BTP Object Store / document management |
-| `CL_ABAP_CHAR_UTILITIES` | `CL_ABAP_STRING_UTILITIES` |
 
 ### Check Released Status in ADT
 
@@ -849,15 +873,15 @@ Or in code: hover over the class/interface — ADT shows the release state inlin
 | Inline declarations `DATA(x)` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `VALUE #` constructor | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `COND #` / `SWITCH #` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `FILTER #` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `FILTER #` | ✅ (SP08+) | ✅ | ✅ | ✅ | ✅ |
 | String templates `\| \|` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | CTE (`WITH`) | ❌ | ❌ | ✅ | ✅ | ✅ |
 | Window functions | ❌ | ❌ | ✅ | ✅ | ✅ |
-| `REDUCE #` | ❌ | ✅ | ✅ | ✅ | ✅ |
+| `REDUCE #` | ✅ (SP08+) | ✅ | ✅ | ✅ | ✅ |
 | Secondary table keys | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Exception classes | ✅ | ✅ | ✅ | ✅ | ✅ |
 | ABAP Unit | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `CL_ABAP_TESTDOUBLE` | ❌ | ✅ | ✅ | ✅ | ✅ |
+| `CL_ABAP_TESTDOUBLE` | ⚠️ (7.40 SP09+, verify) | ✅ | ✅ | ✅ | ✅ |
 | `CL_SALV_TABLE` | ✅ | ✅ | ✅ | ✅ | ❌ (no UI) |
 | BAdI (`GET/CALL BADI`) | ✅ | ✅ | ✅ | ✅ | ⚠️ only released |
-| `AUTHORITY-CHECK` | ✅ | ✅ | ✅ | ✅ | ❌ use IAM |
+| `AUTHORITY-CHECK` | ✅ | ✅ | ✅ | ✅ | ✅ (roles via IAM, not PFCG) |
