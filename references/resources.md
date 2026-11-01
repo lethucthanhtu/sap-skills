@@ -2,6 +2,8 @@
 
 All official SAP documentation sources. Always cite from these when answering SAP questions.
 Search these URLs directly — never rely on memory for version-specific details.
+help.sap.com deep links change often; if one 404s, search help.sap.com for the page title.
+Links last checked: 2026-11-01.
 
 ---
 
@@ -21,7 +23,7 @@ Search these URLs directly — never rely on memory for version-specific details
 - **Use for**: Step-by-step tutorials, missions, hands-on guides, code samples
 - **Key tutorials**:
   - Create Your First ABAP Console App: https://developers.sap.com/tutorials/abap-environment-console-application.html
-  - RAP Managed Scenario: https://developers.sap.com/group.abap-env-restful-managed.html
+  - RAP100 (generate a RAP UI service): https://developers.sap.com/tutorials/abap-environment-rap100-generate-ui-service.html
   - CDS View Tutorial: https://developers.sap.com/tutorials/abap-dev-adt-create-cds-view.html
 
 ### SAP Business Accelerator Hub (API Hub)
@@ -48,7 +50,7 @@ Search these URLs directly — never rely on memory for version-specific details
 | Clean ABAP Style Guide | https://github.com/SAP/styleguides/blob/main/clean-abap/CleanABAP.md |
 | ABAP Cloud — What is Allowed | https://help.sap.com/docs/abap-cloud/abap-cloud/what-is-abap-cloud |
 | Released ABAP APIs (S/4HANA) | https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/fc4c71aa50014fd1b43721701471913d/29a8a6e18e844e41af9b45ebf2cfcdf4.html |
-| ABAP Platform What's New | https://help.sap.com/whats-new/cf0cb2cb149647329b5d02aa96303f56 |
+| ABAP Language News (keyword docs) | https://help.sap.com/doc/abapdocu/latest/en-US/index.htm?file=abennews.htm |
 | ATC Cloud Readiness Check | https://help.sap.com/docs/abap-cloud/abap-rap/atc-check-for-cloud-readiness |
 
 ---
@@ -83,7 +85,7 @@ Search these URLs directly — never rely on memory for version-specific details
 | RAP Validations | https://help.sap.com/docs/abap-cloud/abap-rap/validations |
 | Side Effects | https://help.sap.com/docs/abap-cloud/abap-rap/side-effects |
 | RAP Business Events | https://help.sap.com/docs/abap-cloud/abap-rap/business-events |
-| RAP Tutorial (Developer Center) | https://developers.sap.com/group.abap-env-restful-managed.html |
+| RAP Tutorial (Developer Center) | https://developers.sap.com/tutorials/abap-environment-rap100-generate-ui-service.html |
 
 ---
 
@@ -157,8 +159,8 @@ Search these URLs directly — never rely on memory for version-specific details
 |----------|-----|
 | S/4HANA On-Premise What's New | https://help.sap.com/whats-new/cf0cb2cb149647329b5d02aa96303f56 |
 | S/4HANA Cloud What's New | https://help.sap.com/whats-new/5006a24e60044b2999c41dc6b9e06b22 |
-| ABAP Platform What's New | https://help.sap.com/whats-new/cf0cb2cb149647329b5d02aa96303f56 |
-| BTP What's New | https://help.sap.com/whats-new/cf0cb2cb149647329b5d02aa96303f56?product=73554900100800003832 |
+| ABAP Language News (keyword docs) | https://help.sap.com/doc/abapdocu/latest/en-US/index.htm?file=abennews.htm |
+| BTP What's New | https://help.sap.com/whats-new (filter for SAP BTP) |
 
 ---
 
