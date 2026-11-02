@@ -9,7 +9,8 @@ description: >-
   in a given release. Triggers include SAP, ABAP, CDS view entity, RAP, BDEF, EML,
   OData, SEGW, service binding, Fiori elements, SAPUI5, CAP, cds, BTP, Steampunk,
   HANA, AMDP, SQLScript, ECC, S/4HANA, clean core, released API, BAdI, BAPI, function
-  module, T-code, SAP table, MDG, iFlow, CPI and Z or Y namespace objects. Not for
+  module, T-code, SAP table, key user, on-stack or side-by-side extensibility, MDG,
+  iFlow, CPI and Z or Y namespace objects. Not for
   non-SAP tools that merely share a name.
 license: GPL-3.0
 ---

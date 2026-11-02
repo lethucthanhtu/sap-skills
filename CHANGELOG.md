@@ -39,3 +39,5 @@ All notable changes to this project are documented here. The format follows
 - `AUTHORITY-CHECK OBJECT` and CDS table functions are documented as allowed in ABAP Cloud
   (they were listed as forbidden).
 - BAdI reference links pointed to clean-core files under an outdated path.
+- The skill did not trigger on key user, on-stack or side-by-side extensibility questions
+  (found by the trigger evals); the description now names those terms.
