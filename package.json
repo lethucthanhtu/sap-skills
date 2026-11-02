@@ -1,0 +1,22 @@
+{
+  "name": "sap-skills",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tooling for the SAP skills package: validation, claude.ai packaging and trigger evals. No runtime dependencies.",
+  "license": "GPL-3.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "validate": "node scripts/validate.mjs",
+    "validate:online": "node scripts/validate.mjs --online",
+    "test": "node --test \"tests/**/*.test.mjs\"",
+    "build": "node scripts/build.mjs",
+    "evals:gen": "node scripts/gen-evals.mjs",
+    "evals:run": "claude plugin eval . --no-publish --ablation none --runs 1",
+    "format": "npx -y prettier@3.3.3 --write .",
+    "format:check": "npx -y prettier@3.3.3 --check .",
+    "check": "npm run validate && npm test && npm run format:check && npm run build"
+  }
+}

@@ -1,0 +1,41 @@
+name: validate
+
+on:
+  push:
+    branches: [main, latest]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Lint skills, agents, manifests, links and eval cases
+        run: npm run validate
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Formatting (Prettier)
+        run: npm run format:check
+
+      - name: Build claude.ai skill zips
+        run: npm run build
+
+      # `claude plugin validate` checks the manifests offline and needs no login.
+      - name: Validate plugin manifest
+        run: npx -y @anthropic-ai/claude-code@2.1.316 plugin validate .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claude-ai-skill
+          path: dist/claude-ai/
+          if-no-files-found: error

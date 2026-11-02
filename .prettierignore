@@ -1,0 +1,8 @@
+# Skill content: markdown tables and code samples are hand-formatted.
+*.md
+# Generated
+dist/
+evals/triggers/
+evals/results/
+graphify-out/
+node_modules/

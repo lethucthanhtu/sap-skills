@@ -1,0 +1,11 @@
+# Build output (claude.ai skill zips)
+dist/
+
+# claude plugin eval results
+evals/results/
+
+# Owner-maintained list of internal names that must never be committed (read by scripts/validate.mjs)
+.forbidden-terms
+
+node_modules/
+graphify-out/

@@ -751,5 +751,5 @@ specific classes, log, and re-raise or handle deliberately.
 
 *Cross-domain:* for enhancing RAP business objects (augmentation, additional save,
 side effects) read `domain/rap/DOMAIN.md`; for the released-API / C1 contract rules that
-govern what BAdIs you may consume in Cloud, read `references/released-classes.md` and
-`references/cloud-restrictions.md`.
+govern what BAdIs you may consume in Cloud, read `domain/clean-core/references/released-classes.md` and
+`domain/clean-core/references/abap-cloud-rules.md`.

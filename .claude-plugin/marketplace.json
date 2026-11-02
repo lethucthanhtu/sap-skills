@@ -1,0 +1,16 @@
+{
+  "name": "sap-skills",
+  "description": "SAP development and research for Claude Code: an environment-aware SAP skill plus research, ABAP review and architecture subagents.",
+  "owner": {
+    "name": "Le Thuc Thanh Tu",
+    "url": "https://github.com/lethucthanhtu"
+  },
+  "plugins": [
+    {
+      "name": "sap",
+      "source": "./",
+      "description": "Environment-aware SAP skill (ABAP Cloud, CDS, RAP, OData, clean core, MDG, BTP, Fiori/UI5, CAP, HANA, Integration Suite) with sap-researcher, abap-reviewer and sap-architect agents",
+      "version": "0.1.0"
+    }
+  ]
+}

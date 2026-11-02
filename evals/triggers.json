@@ -1,0 +1,157 @@
+[
+  {
+    "id": "rap-managed-draft",
+    "expect": "sap",
+    "prompt": "Write a managed RAP business object with draft for a travel table on BTP ABAP Environment, including the BDEF and behavior pool."
+  },
+  {
+    "id": "abap-rfc-read-table",
+    "expect": "sap",
+    "prompt": "Is CALL FUNCTION 'RFC_READ_TABLE' allowed in S/4HANA Cloud Public Edition? What should I use instead?"
+  },
+  {
+    "id": "cds-annotations-review",
+    "expect": "sap",
+    "prompt": "Review this CDS view entity for missing annotations: define view entity ZI_Booking as select from zbooking { key booking_id, customer_id, amount }"
+  },
+  {
+    "id": "odata-v4-412",
+    "expect": "sap",
+    "prompt": "Why does my OData V4 PATCH against a RAP service return 412 Precondition Failed?"
+  },
+  {
+    "id": "clean-core-wrapper",
+    "expect": "sap",
+    "prompt": "We're on S/4HANA 2023 on-prem. How do I wrap BAPI_PO_CREATE1 so my ABAP Cloud code can use it?"
+  },
+  {
+    "id": "atc-cloud-readiness",
+    "expect": "sap",
+    "prompt": "How do I set up the ATC cloud readiness check with the cloudification repository for our custom code?"
+  },
+  {
+    "id": "key-user-vs-side-by-side",
+    "expect": "sap",
+    "prompt": "Should I build this approval extension as a key user extension, an on-stack ABAP Cloud app, or side-by-side on BTP?"
+  },
+  {
+    "id": "mdg-rule-based-workflow",
+    "expect": "sap",
+    "prompt": "In MDG on S/4HANA, how do I configure a rule-based workflow for a new change request type for supplier creation?"
+  },
+  {
+    "id": "mdg-add-field",
+    "expect": "sap",
+    "prompt": "What are the steps to add a custom field to business partner governance in SAP Master Data Governance?"
+  },
+  {
+    "id": "mdg-drf-replication",
+    "expect": "sap",
+    "prompt": "Material changes approved in our MDG hub aren't arriving in the ERP client. How do I troubleshoot the DRF replication?"
+  },
+  {
+    "id": "btp-destination-onprem",
+    "expect": "sap",
+    "prompt": "My CAP app on Cloud Foundry needs to call an on-premise S/4HANA OData service. How should I set up the destination and Cloud Connector?"
+  },
+  {
+    "id": "btp-xsuaa-roles",
+    "expect": "sap",
+    "prompt": "How do I define role templates and role collections in xs-security.json for my BTP app?"
+  },
+  {
+    "id": "btp-kyma-vs-cf",
+    "expect": "sap",
+    "prompt": "Kyma or Cloud Foundry for a new event-driven extension of S/4HANA Cloud?"
+  },
+  {
+    "id": "fiori-elements-lrop",
+    "expect": "sap",
+    "prompt": "Generate the UI annotations in a metadata extension so my RAP service shows as a Fiori elements list report with filters and an object page."
+  },
+  {
+    "id": "ui5-deprecated",
+    "expect": "sap",
+    "prompt": "Our SAPUI5 controllers use jQuery.sap.require and sap.ui.getCore() everywhere. What should we replace them with?"
+  },
+  {
+    "id": "ui5-deploy-abap",
+    "expect": "sap",
+    "prompt": "How do I deploy a Fiori app generated with Fiori tools to the ABAP repository and add it to the launchpad?"
+  },
+  {
+    "id": "cap-handler",
+    "expect": "sap",
+    "prompt": "In CAP Node.js, write an event handler that rejects orders exceeding stock, and restrict the service to an admin role."
+  },
+  {
+    "id": "cap-import-s4",
+    "expect": "sap",
+    "prompt": "How do I consume the S/4HANA business partner API from a CAP project with cds import?"
+  },
+  {
+    "id": "hana-sqlscript-perf",
+    "expect": "sap",
+    "prompt": "This SQLScript procedure loops over a cursor and is slow on HANA Cloud. How do I rewrite it set-based?"
+  },
+  {
+    "id": "amdp-client",
+    "expect": "sap",
+    "prompt": "Write an AMDP method that sums revenue per customer and handles the client correctly."
+  },
+  {
+    "id": "abap-unit-test-double",
+    "expect": "sap",
+    "prompt": "How do I unit test an ABAP class that selects from a CDS view using the CDS test double framework?"
+  },
+  {
+    "id": "research-released-class",
+    "expect": "sap",
+    "prompt": "Is CL_ABAP_REGEX released for ABAP Cloud, and since which release?"
+  },
+  {
+    "id": "ecc-segw",
+    "expect": "sap",
+    "prompt": "On ECC 6.0 EhP8, how do I create an OData V2 service with SEGW for sales orders?"
+  },
+  {
+    "id": "vietnamese-rap",
+    "expect": "sap",
+    "prompt": "Làm sao để tạo action trong RAP BDEF trên S/4HANA 2022?"
+  },
+  {
+    "id": "neg-python-sort",
+    "expect": null,
+    "prompt": "Write a Python function that sorts a list of dictionaries by two keys."
+  },
+  {
+    "id": "neg-react-form",
+    "expect": null,
+    "prompt": "Build a React form with validation using react-hook-form and zod."
+  },
+  {
+    "id": "neg-postgres-index",
+    "expect": null,
+    "prompt": "Which index should I add to speed up this PostgreSQL query with a WHERE on created_at and user_id?"
+  },
+  {
+    "id": "neg-aspnet-odata",
+    "expect": null,
+    "prompt": "How do I enable $filter and $expand on an ASP.NET Core OData controller with Entity Framework?"
+  },
+  {
+    "id": "neg-cdn-cds",
+    "expect": null,
+    "prompt": "Our CloudFront CDN cache keeps serving stale JavaScript after deploy. How do I invalidate it?"
+  },
+  {
+    "id": "neg-maple-sap",
+    "expect": null,
+    "prompt": "When is the best time of year to tap maple trees for sap?"
+  },
+  {
+    "id": "neg-salesforce-apex",
+    "expect": null,
+    "prompt": "Write an Apex trigger in Salesforce that updates the account rating when an opportunity closes."
+  }
+]
