@@ -40,9 +40,9 @@ ECC (≤ ABAP 7.52):
   ✅ Classic ABAP syntax đầy đủ
   ✅ WRITE, SUBMIT, CALL TRANSACTION, AUTHORITY-CHECK
   ✅ Unreleased Function Modules
-  ❌ INTO @DATA(...), inline host expressions
-  ❌ CTE (WITH...AS), Window functions
-  ❌ cl_abap_testdouble (available từ 7.50 nhưng limited)
+  ⚠️ INTO @DATA(...), @host escaping: from 7.40 SP08 — check SY-SAPRL / SP level
+  ⚠️ CTE (WITH ... AS): from 7.51 — window expressions (OVER): from 7.54 (not on ECC)
+  ⚠️ cl_abap_testdouble: from 7.40 SP09 — older systems need hand-written test doubles
 
 S/4HANA On-Premise 2020/21 (ABAP 7.54/7.56):
   ✅ Modern ABAP syntax đầy đủ (inline, VALUE, COND, REDUCE, FILTER)
@@ -57,7 +57,7 @@ S/4HANA Cloud Public / BTP Steampunk:
   ✅ ABAP SQL với @host variables bắt buộc
   ❌ COMMIT WORK, ROLLBACK WORK → dùng COMMIT ENTITIES
   ❌ WRITE, SUBMIT, CALL TRANSACTION, CALL SCREEN
-  ❌ AUTHORITY-CHECK → dùng IAM/RAP authorization
+  ✅ AUTHORITY-CHECK OBJECT — allowed, with released/own auth objects (IAM app + business role grant them)
   ❌ SELECT * → ATC warning/error
   ❌ Unreleased FM/class
   ❌ Classic BAdI (SE18/SE19) → dùng Kernel BAdI với C1 release
@@ -177,14 +177,15 @@ Tier concept:
 | SELECT, Open SQL, CTE, FAE, JOIN, GROUP BY, pagination, HANA functions | `references/abap-sql.md` |
 | Exception class, cx_*, RAISE EXCEPTION, TRY/CATCH, resume | `references/exception-classes.md` |
 | BAdI, enhancement spot, GET BADI, CALL BADI, implicit/explicit enhancement | `references/badi-enhancement.md` |
-| Released class, cl_abap_context_info, cl_system_uuid, xco_cp, XCO library | `references/released-classes.md` |
-| ABAP Cloud restriction, forbidden keyword, COMMIT WORK, WRITE, tier-1/2 | `references/cloud-restrictions.md` |
+| Released class, cl_abap_context_info, cl_system_uuid, xco_cp, XCO library | `domain/clean-core/references/released-classes.md` |
+| ABAP Cloud restriction, forbidden keyword, COMMIT WORK, WRITE, tier-1/2 | `domain/clean-core/references/abap-cloud-rules.md` |
 | ABAP Unit test, FOR TESTING, cl_abap_unit_assert, test double, CUT | `references/unit-testing.md` |
 
 **Cross-domain routing:**
 - ABAP + RAP → đọc `domain/rap/DOMAIN.md` thêm (EML, behavior implementation)
 - ABAP + CDS → đọc `domain/cds/DOMAIN.md` thêm (annotation, VDM)
-- Released classes trong RAP handler → đọc cả `references/released-classes.md` lẫn RAP domain
+- Released classes trong RAP handler → đọc cả `domain/clean-core/references/released-classes.md` lẫn RAP domain
+- Clean core / extension style / ABAP Cloud rules → `domain/clean-core/DOMAIN.md`
 
 ---
 
@@ -198,7 +199,7 @@ Scan trước khi trả lời code ABAP — flag ngay nếu phát hiện:
 | `FOR ALL ENTRIES` không có `IS NOT INITIAL` check | AP-ABAP-02 🔴 | Thêm `IF lt_keys IS NOT INITIAL` guard |
 | `MODIFY lt_table FROM ls_row` trong LOOP | AP-ABAP-03 🟠 | Dùng `ASSIGNING FIELD-SYMBOL(<fs>)` |
 | `COMMIT WORK` trong ABAP Cloud context | AP-CLOUD/RAP 🔴 | `COMMIT ENTITIES` (RAP) hoặc sai phase |
-| `AUTHORITY-CHECK` trong ABAP Cloud | AP-CLOUD-02 🔴 | Dùng IAM / RAP authorization |
+| `AUTHORITY-CHECK` on an unreleased SAP auth object in ABAP Cloud | AP-CLOUD-02 🔴 | Own/released auth object, checked in RAP authorization handlers |
 | `CALL FUNCTION` chưa verify C1 release | AP-CLOUD-03 🟠 | Kiểm tra release contract trong ADT |
 | `WRITE:` statement trong Cloud context | AP-CLOUD-04 🟠 | `if_oo_adt_classrun~main` / `out->write` |
 | `INSERT/UPDATE/DELETE` trực tiếp vào table trong Cloud | AP-CLOUD-05 🟠 | Dùng EML (MODIFY ENTITIES) |
@@ -285,6 +286,10 @@ CLASS zcl_travel_processor DEFINITION
   PUBLIC SECTION.
     INTERFACES zif_travel_processor.
 
+    " Dependency injection: the repository is passed in (test doubles in unit tests)
+    METHODS constructor
+      IMPORTING travel_repository TYPE REF TO zif_travel_repository.
+
   PRIVATE SECTION.
     DATA travel_repository TYPE REF TO zif_travel_repository.
 
@@ -299,6 +304,10 @@ CLASS zcl_travel_processor DEFINITION
 ENDCLASS.
 
 CLASS zcl_travel_processor IMPLEMENTATION.
+
+  METHOD constructor.
+    me->travel_repository = travel_repository.
+  ENDMETHOD.
 
   METHOD zif_travel_processor~create_travel.
     " Validate input
@@ -393,7 +402,7 @@ CLASS ltc_travel_processor DEFINITION FINAL FOR TESTING
 
   PRIVATE SECTION.
     DATA cut TYPE REF TO zcl_travel_processor.  " Class Under Test
-    DATA mock_repository TYPE REF TO cl_abap_testdouble.
+    DATA mock_repository TYPE REF TO zif_travel_repository.  " typed as the interface
 
     METHODS setup.         " runs before EACH test
     METHODS teardown.      " runs after EACH test
@@ -407,13 +416,10 @@ CLASS ltc_travel_processor IMPLEMENTATION.
 
   METHOD setup.
     " Create mock for repository dependency
-    mock_repository = cl_abap_testdouble=>create(
-                        'ZIF_TRAVEL_REPOSITORY' ).
+    mock_repository ?= cl_abap_testdouble=>create( 'ZIF_TRAVEL_REPOSITORY' ).
 
-    " Inject mock into CUT
-    cut = NEW zcl_travel_processor(
-      travel_repository = CAST zif_travel_repository( mock_repository )
-    ).
+    " Inject mock into CUT (constructor injection)
+    cut = NEW zcl_travel_processor( travel_repository = mock_repository ).
   ENDMETHOD.
 
   METHOD teardown.
@@ -429,9 +435,11 @@ CLASS ltc_travel_processor IMPLEMENTATION.
       base_price  = '1000.00'
     ).
 
-    " Set up mock expectation
+    " Set up mock expectation: configure_call, then the call to configure
+    " (ignore_all_parameters because the CUT passes an enriched structure)
     cl_abap_testdouble=>configure_call( mock_repository
-      )->returning( VALUE zs_travel_data( BASE travel travel_id = '000001' ) ).
+      )->returning( VALUE zs_travel_data( BASE travel travel_id = '000001' )
+      )->ignore_all_parameters( ).
     mock_repository->save( travel ).
 
     " WHEN — call method under test

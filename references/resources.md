@@ -37,6 +37,7 @@ Last verified: 2025
     - [High-Quality Third-Party Resources](#high-quality-third-party-resources)
   - [13. Release Notes \& What's New](#13-release-notes--whats-new)
   - [14. Tools \& IDEs](#14-tools--ides)
+  - [15. Research Tooling](#15-research-tooling)
 
 ---
 
@@ -411,3 +412,16 @@ SAP Tables (alternative):
 | CF CLI | https://docs.cloudfoundry.org/cf-cli | Deploy to BTP CF |
 | MTA Build Tool | https://help.sap.com/docs/btp/sap-business-technology-platform/multitarget-application-mta | Build MTA archives |
 | HANA Database Explorer | https://help.sap.com/docs/hana-cloud/sap-hana-cloud-sap-hana-database-developer-guide-for-cloud-foundry-multitarget-applications/sap-hana-database-explorer | Browse HANA schema |
+---
+
+## 15. Research Tooling
+
+How to use these sources step by step: `references/research-workflow.md`.
+
+| Tool | URL | Purpose |
+|---|---|---|
+| SAP Discovery Center | https://discovery-center.cloud.sap/ | BTP service availability, plans, regions |
+| SAP Business Accelerator Hub | https://api.sap.com/ | Released APIs, events and integration content |
+| ABAP Keyword Documentation (latest) | https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/index.htm | Syntax, release news, ABAP Cloud restrictions |
+| Cloudification Repository | https://github.com/SAP/abap-atc-cr-cv-s4hc | Released objects and successors for clean core |
+| ABAP documentation MCP server (optional) | — | When connected, tools such as `search`, `fetch`, `abap_feature_matrix` and `sap_get_object_details` verify release facts faster than web search |

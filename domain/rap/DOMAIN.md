@@ -39,9 +39,15 @@ Source: https://aixsap.com/abap-restful-application-programming-model-rap-a-seni
 Check `references/environment-matrix.md` section 3 (RAP Features Matrix).
 
 Critical checks:
-- `strict(2)` → only available from S/4HANA 2021 (ABAP 7.56+). Always use for new dev on 2021+.
-- Business Events → only from S/4HANA 2022 (ABAP 7.57+)
-- Augmentation, Precheck → only from S/4HANA 2021 (ABAP 7.56+)
+- Precheck, draft → from S/4HANA 2020 (ABAP 7.55+)
+- `strict`, augmentation, global authorization → from S/4HANA 2021 (ABAP 7.56+)
+- `strict(2)`, business events, managed late numbering → from S/4HANA 2022 (ABAP 7.57+).
+  Always use `strict(2)` for new development on 2022+ and in the cloud.
+- Side effects, change documents → from S/4HANA 2023 (ABAP 7.58+)
+
+Release levels follow the RAP BDL feature table in the ABAP keyword documentation
+(`ABENRAP_FEATURE_TABLE`); it takes precedence over the sample-scenario matrix in
+`references/environment-diff.md`.
 - CDS Table Entities as persistence → only from S/4HANA 2025 (ABAP 8.16+)
 - Collaborative draft, cross-BO, tree views → only from S/4HANA 2025 (ABAP 8.16+)
 
@@ -132,7 +138,7 @@ Sources:
 | RAP unit testing, EML test doubles | `references/testing-eml.md` |
 | Environment differences, strict(2), versions | `references/environment-diff.md` |
 
-For cross-domain questions (RAP + OData + CAP): read RAP domain files + `domains/odata/DOMAIN.md` and/or `domains/cap/DOMAIN.md`.
+For cross-domain questions (RAP + OData + CAP): read RAP domain files + `domain/odata/DOMAIN.md` and/or `domain/cap/DOMAIN.md`.
 
 ---
 

@@ -163,17 +163,28 @@ Source: https://help.sap.com/docs/abap-cloud/abap-cloud/what-is-abap-cloud
 
 ---
 
-### AP-CLOUD-02 🔴 — AUTHORITY-CHECK in ABAP Cloud
+### AP-CLOUD-02 🔴 — Missing authorization check in a RAP BO
 ```abap
-" ❌ WRONG — not supported in ABAP Cloud / BTP Steampunk
-AUTHORITY-CHECK OBJECT 'Z_TRAVEL'
-  ID 'ACTVT' FIELD '03'.
-IF sy-subrc <> 0. RAISE EXCEPTION ... ENDIF.
+" ❌ WRONG — no authorization implementation; every user can change every travel
+define behavior for ZR_Travel alias Travel
+{ update; delete; }
 
-" ✅ CORRECT — use RAP authorization (get_global_authorizations / get_instance_authorizations)
-" or IAM (Identity & Access Management) for BTP
+" ✅ CORRECT — declare authorization in the BDEF and check it in the handler
+" BDEF: authorization master ( instance, global )
+METHOD get_instance_authorizations.
+  AUTHORITY-CHECK OBJECT 'Z_TRAVEL'
+    ID 'ACTVT' FIELD '02'.
+  DATA(update_allowed) = xsdbool( sy-subrc = 0 ).
+  result = VALUE #( FOR key IN keys
+                    ( %tky    = key-%tky
+                      %update = COND #( WHEN update_allowed = abap_true
+                                        THEN if_abap_behv=>auth-allowed
+                                        ELSE if_abap_behv=>auth-unauthorized ) ) ).
+ENDMETHOD.
 ```
-**Why**: `AUTHORITY-CHECK` is blocked in ABAP for Cloud Development.
+**Why**: `AUTHORITY-CHECK OBJECT` is allowed in ABAP Cloud and is the way to check
+authorization objects inside RAP authorization handlers. Missing authorization control is the
+real defect. In ABAP Cloud the authorization object must be your own or released.
 Source: https://help.sap.com/docs/abap-cloud/abap-rap/authorization
 
 ---
@@ -469,17 +480,19 @@ Source: https://community.sap.com/t5/enterprise-resource-planning-blog-posts-by-
 
 ---
 
-### AP-CDS-06 🟡 — Table function in ABAP Cloud
+### AP-CDS-06 🟡 — Table function where a view entity would do
 ```abap
-" ❌ WRONG — table functions not supported in ABAP Cloud / BTP
+" ❌ WRONG — AMDP table function for logic plain CDS can express
 define table function Z_TF_OpenItems ...
   implemented by method ZCL_TF_IMPL=>get_data;
 
-" ✅ CORRECT — use custom entity with query provider class instead
-@ObjectModel.query.implementedBy: 'ABAP:ZCL_QUERY_PROVIDER'
-define custom entity Z_CE_OpenItems { ... }
+" ✅ CORRECT — a CDS view entity (joins, CASE, aggregations, built-in functions)
+define view entity ZI_OpenItems as select from ...
 ```
-**Why**: Table functions require SQLScript/HANA DB procedures — not available in ABAP Cloud.
+**Why**: Table functions are allowed in ABAP Cloud (implemented by AMDP), but they bypass
+CDS access control unless you secure them separately, cannot be optimised by the database
+across the view stack, and are harder to test. Use them only for logic CDS cannot express;
+for ABAP-side logic in a service, use a custom entity with a query provider.
 
 ---
 

@@ -64,7 +64,7 @@ Claude must check this file when environment-specific syntax, APIs, or features 
 | ABAP Unit Testing | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `CL_ABAP_TESTDOUBLE` | ❌ (7.50+) | ✅ | ✅ | ✅ | ✅ |
 | ABAP Cloud syntax (`@DATA`) | ❌ | ✅ | ✅ | ✅ | ✅ |
-| `AUTHORITY-CHECK` | ✅ | ✅ | ✅ | ✅ | ❌ use IAM |
+| `AUTHORITY-CHECK OBJECT` | ✅ | ✅ | ✅ | ✅ | ✅ (required in RAP authorization handlers) |
 | `WRITE` / classic reports | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `SUBMIT` report | ✅ | ✅ | ✅ | ✅ | ❌ |
 | `CALL TRANSACTION` | ✅ | ✅ | ✅ | ✅ | ❌ |
@@ -101,18 +101,19 @@ Claude must check this file when environment-specific syntax, APIs, or features 
 
 ## 3. RAP Features Matrix
 
-| Feature | ECC | S/4 2020 (7.54) | S/4 2021 (7.56) | S/4 2022 (7.57) | S/4 2023 (7.58) | S/4 2025 (8.16) | S/4 Cloud Public |
+| Feature | ECC | S/4 2020 (7.55) | S/4 2021 (7.56) | S/4 2022 (7.57) | S/4 2023 (7.58) | S/4 2025 (8.16) | S/4 Cloud Public |
 |---|---|---|---|---|---|---|---|
-| RAP (basic) | ❌ (1909+) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| RAP (basic) | ❌ (S/4 1809+ unmanaged, 1909+ managed) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Managed scenario | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Unmanaged scenario | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Draft handling | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Actions & Validations | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Determinations | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `strict(2)` | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `strict` (version 1) | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `strict(2)` | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
 | Augmentation | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Precheck | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Late numbering | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Precheck | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Late numbering (unmanaged; managed from 7.57) | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | EML Test Doubles | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Business Events (local) | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
 | Business Events (Event Mesh BTP) | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
@@ -122,11 +123,15 @@ Claude must check this file when environment-specific syntax, APIs, or features 
 | Collaborative draft (multi-user) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ (8.16) | ✅ |
 | Cross-BO scenarios | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ (8.16) | ✅ |
 | Tree view in Fiori (RAP) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ (8.16) | ✅ |
-| Event-driven side effects | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ (8.16) | ✅ |
+| Side effects | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
 | Standard BO extension | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | RAP Generator (ADT wizard) | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ + AI | ✅ + AI |
 | BOPF (legacy BO) | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | ⚠️ deprecated | ❌ |
 
+> Release levels for `strict`, `strict(2)`, precheck, augmentation, business events, late numbering
+> and side effects follow the RAP BDL feature table in the ABAP keyword documentation, which takes
+> precedence over sample-scenario evidence.
+> Source: https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/index.htm?file=abenrap_feature_table.htm
 > Source: https://help.sap.com/docs/abap-cloud/abap-rap/abap-restful-application-programming-model
 > Source: https://github.com/SAP-samples/abap-platform-refscen-flight (branches: ABAP-platform-2023, ABAP-platform-2025)
 
@@ -136,13 +141,13 @@ Claude must check this file when environment-specific syntax, APIs, or features 
 
 | Feature | ECC | S/4 2020/21 | S/4 2022/23 | S/4 2025 | S/4 Cloud |
 |---|---|---|---|---|---|
-| CDS View Entity (V2) | ✅ (7.40+) | ✅ | ✅ | ✅ | ✅ |
+| CDS View Entity (V2) | ❌ (7.55+) | ✅ | ✅ | ✅ | ✅ |
 | `@UI` annotations | ❌ | ✅ | ✅ | ✅ | ✅ |
 | `@ObjectModel` annotations | ❌ | ✅ | ✅ | ✅ | ✅ |
 | `@AccessControl` / DCL | ❌ | ✅ | ✅ | ✅ | ✅ |
 | `@Search` annotations | ❌ | ✅ | ✅ | ✅ | ✅ |
 | CDS Parameters | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Table Functions | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Table Functions (AMDP) | ⚠️ (7.50+) | ✅ | ✅ | ✅ | ✅ |
 | Aggregation views | ✅ | ✅ | ✅ | ✅ | ✅ |
 | CDS Hierarchy | ❌ (7.50+) | ✅ | ✅ | ✅ | ✅ |
 | View Extensions | ✅ | ✅ | ✅ | ✅ | ⚠️ released only |
@@ -244,12 +249,13 @@ Critical for knowing which syntax features are available:
 
 | S/4HANA Release | ABAP Platform | SAP_BASIS | Key New Features |
 |---|---|---|---|
-| ECC 6.0 (EHP8) | ABAP 7.52 | 752 | Baseline |
-| S/4HANA 1909 | ABAP 7.54 | 754 | RAP introduced, CTE, Window functions, inline declarations enhanced |
-| S/4HANA 2020 | ABAP 7.54 SP | 754 | RAP improvements, CDS enhancements |
-| S/4HANA 2021 | ABAP 7.56 | 756 | `strict(2)`, Augmentation, Precheck, EML Test Doubles |
-| S/4HANA 2022 | ABAP 7.57 | 757 | Business Events, bgPF, RAP BAdI-like extensions |
-| S/4HANA 2023 | ABAP 7.58 | 758 | CDS Scalar Functions, join cardinality, DCL on projection views, CDS simple types |
+| ECC 6.0 (EHP8) | AS ABAP 7.50 | 750 | Baseline |
+| S/4HANA 1809 | ABAP 7.53 | 753 | Unmanaged RAP |
+| S/4HANA 1909 | ABAP 7.54 | 754 | Managed RAP |
+| S/4HANA 2020 | ABAP 7.55 | 755 | Draft, precheck, CDS view entities |
+| S/4HANA 2021 | ABAP 7.56 | 756 | `strict`, augmentation, global authorization |
+| S/4HANA 2022 | ABAP 7.57 | 757 | `strict(2)`, business events, managed late numbering, BDEF extensions |
+| S/4HANA 2023 | ABAP 7.58 | 758 | Side effects, change documents, CDS Scalar Functions, join cardinality, DCL on projection views, CDS simple types |
 | S/4HANA 2025 | ABAP 8.16 | 816 | CDS Table Entities, collaborative draft, cross-BO, tree views, SAP Joule AI |
 | S/4HANA Cloud Public | Always latest | Continuous | All features + AI, quarterly updates |
 | BTP ABAP Env. | ABAP Cloud | Latest | Strictest cloud restrictions, released APIs only |
@@ -297,7 +303,7 @@ SAP introduced the **A–D Rating Extensibility Model** in August 2025 to classi
 ```
 Target S/4 Cloud Public or BTP?
   → ABAP Cloud strict mode, released APIs only (Rating B)
-  → RAP strict(2), OData V4, no AUTHORITY-CHECK
+  → RAP strict(2), OData V4, AUTHORITY-CHECK OBJECT in get_*_authorizations
 
 Target S/4 On-Prem 2025?
   → ABAP Cloud preferred (Rating B), classic allowed for migration
@@ -305,14 +311,15 @@ Target S/4 On-Prem 2025?
   → OData V4 via RAP for all new services
 
 Target S/4 On-Prem 2022/2023?
-  → RAP strict(2) (ABAP 7.57/7.58)
+  → RAP strict(2) (available from ABAP 7.57)
   → Business Events available (2022+)
   → OData V4 strongly preferred
   → CDS Scalar Functions available (2023+)
 
 Target S/4 On-Prem 2020/2021?
-  → RAP strict(1) only (no strict(2) until 7.56)
-  → No business events, no precheck, no augmentation (check 2021 for these)
+  → 2020 (7.55): no strict mode; draft and precheck available
+  → 2021 (7.56): plain strict, augmentation, global authorization
+  → No strict(2), no business events (both from 2022 / 7.57)
   → OData V4 available but verify service binding support
 
 Still on ECC?

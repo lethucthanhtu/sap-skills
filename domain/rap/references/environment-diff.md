@@ -2,9 +2,9 @@
 
 Which RAP features exist in which environment (ECC / S/4HANA On-Premise 2019→2025 /
 S/4HANA Cloud Public / BTP), and how BDEF syntax and behavior implementation change across
-releases. **The core matrix in this file is verified empirically**: by comparing the same
-business object across the release-specific branches of the ABAP Flight Reference Scenario
-(SAP-samples), whose branches are officially labeled with their AS ABAP version.
+releases. **Availability boundaries come from the official RAP BDL feature table** (Section
+2.1). A second matrix (Section 2.2) records when the ABAP Flight Reference Scenario
+(SAP-samples) started using each feature, as working example code per release.
 
 > **Read this file when:** the question is about "which release supports X", `strict(2)`
 > availability, RAP on S/4HANA 2020/2021/2022/2023/2025, ABAP 7.54–8.16, ECC vs S/4 vs
@@ -62,6 +62,31 @@ absent at N‑1, the file states the boundary; otherwise it says "appears from b
 
 ## 2. The verified feature-by-release matrix
 
+### 2.1 Official release levels (authoritative)
+
+> **Precedence.** The ABAP keyword documentation's RAP BDL feature table
+> (`ABENRAP_FEATURE_TABLE`) is the authoritative source for release levels. Where it differs
+> from the sample-scenario matrix in 2.2, use this table. The sample scenario often adopts a
+> feature one or more releases after it became available.
+
+| Feature | Available from | S/4HANA on-prem |
+|---|---|---|
+| Unmanaged RAP BO | 7.53 | 1809 |
+| Managed RAP BO | 7.54 | 1909 |
+| Draft, `precheck`, CDS view entities | 7.55 | 2020 |
+| `strict`, augmentation, global authorization | 7.56 | 2021 |
+| `strict ( 2 )`, business events, managed late numbering, BDEF extensions | 7.57 | 2022 |
+| Side effects, change documents, managed events | 7.58 | 2023 |
+| Collaborative draft | 8.16 | 2025 |
+
+Source: ABAP Keyword Documentation — RAP BDL feature table
+(https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/index.htm?file=abenrap_feature_table.htm).
+
+### 2.2 First appearance in the Flight Reference Scenario
+
+This matrix shows when the **sample scenario started using** a feature. It is useful as
+working example code per release, but it is **not** the availability boundary (see 2.1).
+
 `✅` = the feature appears in that release's reference-scenario branch (verified by source
 inspection). `—` = not present in that branch. Columns are AS ABAP versions.
 
@@ -86,12 +111,14 @@ Source: comparison of the `ABAP-platform-2019 … 2025` and `ABAP-platform-cloud
 SAP-samples/abap-platform-refscen-flight (source inspection). Branch↔version mapping from
 that repo's README.
 
-**Reading the matrix at a glance:**
+**Reading the scenario matrix at a glance** (scenario adoption, not availability; see 2.1):
 
-- Everything RAP starts at **7.55 (S/4HANA 2020)** — 7.54/1909 has no RAP in this scenario.
-- **Authorization + augmentation** land at **7.56 (2021)**.
-- **precheck + business events + late numbering** land at **7.57 (2022)**.
-- **`strict ( 2 )`** appears at **7.58 (2023)**.
+- The scenario's RAP code starts at **7.55 (S/4HANA 2020)**, although managed RAP itself
+  exists from 7.54 (1909).
+- **Authorization + augmentation** appear at **7.56 (2021)**.
+- **precheck + business events + late numbering** appear at **7.57 (2022)**. `precheck` is
+  available from 7.55.
+- **`strict ( 2 )`** appears at **7.58 (2023)**. It is available from 7.57.
 - **Collaborative draft** and the **`with privileged mode`** BDEF clause appear at **8.16 (2025)**.
 - The **Cloud** branch has the full modern feature set — treat it as "latest".
 
@@ -99,14 +126,16 @@ that repo's README.
 
 ## 3. RAP availability & `strict` modes
 
-RAP first appears in the 7.55 (2020) branch. `strict` mode controls how strictly the RAP
-framework enforces modern rules; the reference scenario only shows `strict ( 2 )`, appearing
-from the 7.58 (2023) branch:
+Managed RAP is available from 7.54 (1909); the scenario's RAP code first appears in the
+7.55 (2020) branch. `strict` mode controls how strictly the RAP framework enforces modern
+rules. Per the official feature table, `strict` is available from 7.56 (2021) and
+`strict ( 2 )` from 7.57 (2022); the reference scenario only adopts `strict ( 2 )` in the
+7.58 (2023) branch:
 
 ```abap
-" Modern greenfield (7.58 / 2023+ and Cloud): always use strict(2)
+" Modern greenfield (7.57 / 2022+ and Cloud): always use strict(2)
 managed implementation in class zbp_r_travel unique;
-strict ( 2 );                       " ✅ appears from 7.58 (2023) branch onward
+strict ( 2 );                       " ✅ available from 7.57 (2022)
 with draft;
 ```
 
@@ -114,22 +143,22 @@ Guidance by environment:
 
 ```
 ECC                     → no RAP at all
-S/4 On-Prem 7.55–7.57   → RAP available; strict(2) not seen in scenario until 7.58
-S/4 On-Prem 7.58 (2023) → use strict ( 2 ) for new development
+S/4 On-Prem 7.54–7.55   → RAP available; no strict mode
+S/4 On-Prem 7.56 (2021) → use strict for new development
+S/4 On-Prem 7.57 (2022)+ → use strict ( 2 ) for new development
 S/4 On-Prem 8.16 (2025) → strict ( 2 ) + collaborative draft
 Cloud Public / BTP      → strict ( 2 ) is the norm
 ```
 
-⚠️ The reference scenario never uses `strict ( 1 )` or `strict ( 0 )` — no `strict(1)`
-appears in any branch. `strict(2)` is the current recommended level; `strict(1)` exists as
-an older/intermediate level but is not demonstrated here, so its exact release boundary is
-not verified in this session.
+⚠️ The reference scenario never uses plain `strict` / `strict ( 1 )`. `strict(2)` is the
+current recommended level; plain `strict` (strict mode version 1) is available from 7.56
+(2021) per the official feature table.
 
 ```abap
 " ❌ WRONG — omitting strict on a modern system defaults to the least strict behavior
 managed implementation in class zbp_r_travel unique;
 
-" ✅ CORRECT — on 7.58 (2023)+ / Cloud
+" ✅ CORRECT — on 7.57 (2022)+ / Cloud
 managed implementation in class zbp_r_travel unique;
 strict ( 2 );
 ```
@@ -201,11 +230,12 @@ wrapping — the phase rules are.
 branch — the 7.55 (2020) branch only carries a commented-out authorization declaration.
 
 **Precheck** (`create ( precheck )` / `update ( precheck )`) first appears in the **7.57
-(2022)** branch.
+(2022)** branch, but the official feature table lists it as available from **7.55 (2020)**.
 
 ```
-get_*_authorizations + AUTHORITY-CHECK in behavior → appears from 7.56 (2021)
-precheck                                            → appears from 7.57 (2022)
+get_*_authorizations + AUTHORITY-CHECK in behavior → scenario from 7.56 (2021)
+global authorization                                → available from 7.56 (2021)
+precheck                                            → available from 7.55 (2020); scenario from 7.57
 ```
 
 ⚠️ **`AUTHORITY-CHECK OBJECT` is valid in ABAP Cloud.** The Cloud branch (and 7.56+ branches)
@@ -217,10 +247,10 @@ OBJECT` statement itself. See `authorization.md` for the full patterns.
 " Available from 7.56 (2021) and Cloud — inside a behavior-pool helper
 AUTHORITY-CHECK OBJECT 'ZTRVL' ID 'ZCNTRY' FIELD lv_country ID 'ACTVT' FIELD '02'.
 
-" ❌ WRONG — writing precheck on a 7.55/7.56 system
-update ( precheck );    " precheck not seen before 7.57 (2022)
+" ❌ WRONG — writing precheck on a 7.54 (1909) system
+update ( precheck );    " precheck is available from 7.55 (2020)
 
-" ✅ CORRECT on 7.55/7.56 — enforce in get_instance_authorizations instead
+" ✅ CORRECT on 7.54 — validate in a validation / the save sequence instead
 ```
 
 ---
@@ -304,8 +334,8 @@ it is what surrounding ABAP is allowed:
 
 The single biggest porting concern moving a RAP BO from On-Premise to Cloud is therefore the
 **released-API / Clean Core constraint**, not the RAP feature availability — the BDEF and
-behavior pool patterns are the same. See the SKILL-level environment matrix and (when
-created) the ABAP Core `cloud-restrictions.md` for the full forbidden-statement list.
+behavior pool patterns are the same. See `references/environment-matrix.md` and `domain/clean-core/references/abap-cloud-rules.md`
+for the full forbidden-statement list.
 
 ```abap
 " ❌ WRONG in Cloud — unreleased DB table + classic SELECT
@@ -324,12 +354,14 @@ Quick way to reason about the target system:
 ```
 Is it ECC?                → no RAP; stop, use classic ABAP / BOPF / SEGW.
 Is it S/4 Cloud Public / BTP? → assume latest RAP; ABAP Cloud restrictions apply.
-Is it S/4 On-Premise?     → the release (2020/2021/2022/2023/2025) gates features:
-   2020 (7.55): RAP, draft, unmanaged/additional save, determine action
-   2021 (7.56): + authorization, AUTHORITY-CHECK in behavior, augmentation
-   2022 (7.57): + precheck, business events, late numbering
-   2023 (7.58): + strict ( 2 )
-   2025 (8.16): + collaborative draft, with privileged mode
+Is it S/4 On-Premise?     → the release gates features (official feature table):
+   1809 (7.53): unmanaged RAP
+   1909 (7.54): + managed RAP
+   2020 (7.55): + draft, precheck, CDS view entities
+   2021 (7.56): + strict, augmentation, global authorization
+   2022 (7.57): + strict ( 2 ), business events, managed late numbering
+   2023 (7.58): + side effects, change documents
+   2025 (8.16): + collaborative draft
 ```
 
 Confirm the exact release in ADT (system info) or with your Basis team before relying on a
@@ -343,27 +375,25 @@ boundary feature.
 " ❌ WRONG — there is no RAP, BDEF, or EML on ECC
 define behavior for Z_R_Travel ...
 
-" ✅ CORRECT — ECC uses classic ABAP / BOPF; RAP starts at S/4 7.55 (2020)
+" ✅ CORRECT — ECC uses classic ABAP / BOPF; managed RAP starts at S/4HANA 1909 (7.54)
 ```
 
-**2. Using `strict ( 2 )` on a pre-7.58 system**
+**2. Using `strict ( 2 )` on a pre-7.57 system**
 
 ```abap
-" ❌ WRONG on 7.55–7.57 — strict(2) appears from 7.58 (2023) in the scenario
+" ❌ WRONG on 7.54–7.56 — strict(2) is available from 7.57 (2022)
 strict ( 2 );
 
-" ✅ CORRECT — match strict level to the release; verify in ADT
+" ✅ CORRECT — use plain strict on 7.56 (2021); verify the release in ADT
 ```
 
-**3. Writing `precheck` / business events before 7.57 (2022)**
+**3. Writing business events before 7.57 (2022) or `precheck` before 7.55 (2020)**
 
 ```abap
 " ❌ WRONG on 7.55/7.56
-update ( precheck );
 RAISE ENTITY EVENT Z_R_Travel~created FROM ... .
 
-" ✅ CORRECT — these appear from 7.57 (2022); on earlier releases use
-"   get_instance_authorizations / determinations instead
+" ✅ CORRECT — business events are available from 7.57 (2022); `precheck` from 7.55 (2020)
 ```
 
 **4. Assuming `AUTHORITY-CHECK OBJECT` is banned in Cloud**
@@ -395,12 +425,12 @@ Being explicit about the limits of the evidence:
 
 - **Exact SAP Note / SP-level boundaries** within a release are not verified — the matrix is
   at AS ABAP release granularity only.
-- **`strict ( 1 )`** release boundary — not demonstrated in any branch, so not asserted.
+- **`strict ( 1 )`** — not demonstrated in any branch; the official feature table lists plain
+  `strict` from 7.56 (see 2.1).
 - **CDS table entity as RAP persistence** — not present in the reference scenario; release
   boundary not asserted here.
-- Any claim requiring **help.sap.com / release notes** — those pages were **not reachable
-  from this session** (network reaches GitHub only). Where this file gives a release
-  boundary, it is grounded in branch source inspection, not in the official release notes.
+- Release boundaries in Section 2.1 were checked against the official RAP BDL feature table;
+  the scenario matrix (2.2) is grounded in branch source inspection and lags availability.
 
 Always confirm a boundary feature in ADT (system status) or the official SAP release notes
 before committing production code to it.
@@ -409,9 +439,13 @@ before committing production code to it.
 
 ## 13. Sources
 
-### Verified live in this session (fetched directly from GitHub)
+### Official feature table
 
-The matrix and every boundary in this file come from comparing these branches:
+| Source | URL |
+|---|---|
+| ABAP Keyword Documentation — RAP BDL feature table | https://help.sap.com/doc/abapdocu_latest_index_htm/latest/en-US/index.htm?file=abenrap_feature_table.htm |
+
+### Flight Reference Scenario branches (scenario matrix, Section 2.2)
 
 | Source | URL | Content |
 |---|---|---|
